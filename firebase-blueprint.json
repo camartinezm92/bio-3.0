@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role and basic info",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "USER"] },
+        "status": { "type": "string", "enum": ["active", "pending", "disabled"] },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["uid", "email", "role", "status"]
+    },
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Biomedical equipment details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "serial": { "type": "string" },
+        "assetNumber": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "maintenance", "out_of_service"] },
+        "lastMaintenance": { "type": "string" },
+        "nextMaintenance": { "type": "string" },
+        "nextCalibration": { "type": "string" },
+        "driveFolderId": { "type": "string" }
+      },
+      "required": ["name", "serial", "assetNumber", "serviceId", "status"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Hospital service/department",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "MaintenanceReport": {
+      "title": "MaintenanceReport",
+      "description": "Technical maintenance report",
+      "type": "object",
+      "properties": {
+        "equipmentId": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string", "enum": ["preventive", "corrective"] },
+        "description": { "type": "string" },
+        "observations": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending"] },
+        "photos": { "type": "array", "items": { "type": "string" } },
+        "driveFileId": { "type": "string" }
+      },
+      "required": ["equipmentId", "technicianId", "date", "type", "status"]
+    },
+    "ComplianceSubmission": {
+      "title": "ComplianceSubmission",
+      "description": "Periodic compliance checklist submission (every 3 months)",
+      "type": "object",
+      "properties": {
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "date": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "technicianName": { "type": "string" },
+        "score": { "type": "number" },
+        "responses": { 
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "itemId": { "type": "string" },
+              "itemName": { "type": "string" },
+              "category": { "type": "string" },
+              "status": { "type": "string", "enum": ["compliant", "non_compliant", "na"] },
+              "observations": { "type": "string" }
+            }
+          }
+        },
+        "nextReviewDate": { "type": "string" }
+      },
+      "required": ["serviceId", "date", "technicianId", "score"]
+    },
+    "MinorDevice": {
+      "title": "MinorDevice",
+      "description": "Minor devices and surgical instruments details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["instrumental", "ropa", "manta", "kit_rotacion", "dispositivo_menor"] },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "serial": { "type": "string" },
+        "quantity": { "type": "number" },
+        "serviceId": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "maintenance", "out_of_service", "baja"] }
+      },
+      "required": ["name", "type", "quantity", "serviceId", "status"]
+    },
+    "MinorDevicesInventory": {
+      "title": "MinorDevicesInventory",
+      "description": "Bi-annual physical inventories of surgical instruments",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "performedBy": { "type": "string" },
+        "performedByName": { "type": "string" },
+        "performedBySignature": { "type": "string" },
+        "approvedByName": { "type": "string" },
+        "approvedBySignature": { "type": "string" },
+        "observations": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "serviceName": { "type": "string" },
+              "location": { "type": "string" },
+              "systemQuantity": { "type": "number" },
+              "physicalQuantity": { "type": "number" },
+              "difference": { "type": "number" }
+            }
+          }
+        },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["date", "performedBy", "performedByName", "items"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Hospital services"
+    },
+    "/equipment/{equipmentId}": {
+      "schema": "Equipment",
+      "description": "Biomedical equipment inventory"
+    },
+    "/reports/{reportId}": {
+      "schema": "MaintenanceReport",
+      "description": "Maintenance reports"
+    },
+    "/compliance_submissions/{submissionId}": {
+      "schema": "ComplianceSubmission",
+      "description": "Compliance checklist history"
+    },
+    "/minor_devices/{deviceId}": {
+      "schema": "MinorDevice",
+      "description": "Minor devices and instrumentation"
+    },
+    "/minor_devices_inventories/{inventoryId}": {
+      "schema": "MinorDevicesInventory",
+      "description": "Minor devices physical inventory records"
+    }
+  }
+}

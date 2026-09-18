@@ -1,0 +1,6 @@
+{
+  "name": "Biotech",
+  "description": "Sistema de gestión de inventario, mantenimiento y cumplimiento normativo para equipos biomédicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

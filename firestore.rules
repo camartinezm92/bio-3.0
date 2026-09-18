@@ -1,0 +1,202 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required)
+//   - email: string (required, email format)
+//   - displayName: string (optional)
+//   - role: string (required, enum: ['admin', 'technician', 'viewer'])
+//
+// Collection: services
+// Document ID: {serviceId}
+// Fields:
+//   - name: string (required)
+//   - description: string (optional)
+//
+// Collection: equipment
+// Document ID: {equipmentId}
+// Fields:
+//   - name: string (required)
+//   - brand: string (required)
+//   - model: string (required)
+//   - serial: string (required, unique)
+//   - assetNumber: string (required, unique)
+//   - serviceId: string (required, reference to services)
+//   - status: string (required, enum: ['active', 'maintenance', 'out_of_service', 'paused', 'reserva', 'baja_repuestos', 'baja'])
+//   - lastMaintenance: string (optional, ISO date)
+//   - nextMaintenance: string (optional, ISO date)
+//   - nextCalibration: string (optional, ISO date)
+//   - driveFolderId: string (optional)
+//   - decommissioningActUrl: string (optional, for 'baja' status)
+//   - decommissioningDate: string (optional, for 'baja' status)
+//
+// Collection: reports
+// Document ID: {reportId}
+// Fields:
+//   - equipmentId: string (required, reference to equipment)
+//   - technicianId: string (required, reference to users)
+//   - date: string (required, ISO date)
+//   - type: string (required, enum: ['preventive', 'corrective', 'calibration'])
+//   - status: string (required, enum: ['completed', 'pending'])
+//   - driveFileId: string (optional)
+//
+// Collection: transfers
+// Document ID: {transferId}
+// Fields:
+//   - equipmentId: string (required)
+//   - originServiceId: string (required)
+//   - destinationServiceId: string (required)
+//   - date: string (required)
+//   - reportNumber: string (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.email == "ingbiomedico@ucihonda.com.co" ||
+         request.auth.uid == "JqWtu7Nm9MXmHls6oEPwGL5ZMH02" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+    }
+
+    function isActive() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "ingbiomedico@ucihonda.com.co" ||
+         request.auth.uid == "JqWtu7Nm9MXmHls6oEPwGL5ZMH02" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active'));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'status']) &&
+             data.uid == request.auth.uid &&
+             data.role in ['ADMIN', 'USER'] &&
+             data.status in ['active', 'pending', 'disabled'];
+    }
+
+    function isValidEquipment(data) {
+      return data.keys().hasAll(['name', 'brand', 'model', 'serial', 'assetNumber', 'serviceId', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.serial is string && data.serial.size() > 0 &&
+             data.status in ['active', 'maintenance', 'out_of_service', 'paused', 'reserva', 'baja_repuestos', 'baja'];
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['equipmentId', 'technicianId', 'date', 'type', 'status']) &&
+             data.type in ['preventive', 'corrective', 'calibration'] &&
+             data.status in ['completed', 'pending'];
+    }
+
+    function isValidTransfer(data) {
+      return data.keys().hasAll(['equipmentId', 'originServiceId', 'destinationServiceId', 'date', 'reportNumber']) &&
+             data.equipmentId is string &&
+             data.originServiceId is string &&
+             data.destinationServiceId is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Allow creation of pending user profile or active admin profile
+      allow create: if isAuthenticated() && isOwner(userId) && 
+                    (
+                      (
+                        (request.auth.token.email == "ingbiomedico@ucihonda.com.co" || request.auth.uid == "JqWtu7Nm9MXmHls6oEPwGL5ZMH02") && 
+                        request.resource.data.status == "active" && 
+                        request.resource.data.role == "ADMIN"
+                      ) ||
+                      (
+                        request.auth.token.email != "ingbiomedico@ucihonda.com.co" && 
+                        request.auth.uid != "JqWtu7Nm9MXmHls6oEPwGL5ZMH02" && 
+                        request.resource.data.status == "pending" && 
+                        request.resource.data.role == "USER"
+                      )
+                    );
+      // Allow users to update their own basic info but not role/status
+      allow update: if (isAuthenticated() && isOwner(userId) && 
+                       request.resource.data.role == resource.data.role && 
+                       request.resource.data.status == resource.data.status) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /services/{serviceId} {
+      allow read: if isActive();
+      allow write: if isAdmin();
+    }
+
+    match /providers/{providerId} {
+      allow read: if isActive();
+      allow write: if isAdmin();
+    }
+
+    match /equipment/{equipmentId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && isValidEquipment(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && isValidReport(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /transfers/{transferId} {
+      allow read: if isActive();
+      allow create: if isActive() && isValidTransfer(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /compliance_submissions/{submissionId} {
+      allow read: if isActive();
+      allow create: if isActive();
+      allow update, delete: if isAdmin();
+    }
+
+    match /guides/{guideId} {
+      allow read: if isActive();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /config/{configId} {
+      allow read: if isActive();
+      allow write: if isAdmin();
+    }
+
+    match /minor_devices/{deviceId} {
+      allow read, write: if isActive();
+    }
+
+    match /minor_devices/{deviceId}/reports/{reportId} {
+      allow read, write: if isActive();
+    }
+
+    match /minor_devices_inventories/{inventoryId} {
+      allow read, write: if isActive();
+    }
+  }
+}
