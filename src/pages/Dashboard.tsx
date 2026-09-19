@@ -18,7 +18,8 @@ import {
   ClipboardList,
   ArrowRight,
   Info,
-  X
+  X,
+  Gauge
 } from 'lucide-react';
 import { collection, onSnapshot, query, where, limit, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -237,6 +238,36 @@ export default function Dashboard() {
             Resumen del estado tecnológico y operativo de la institución.
           </p>
         </div>
+      </div>
+
+      {/* Acceso Directo a la Matriz de Obsolescencia Institucional (GTE-MTX-001) */}
+      <div className="bg-slate-900 rounded-3xl p-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl border border-slate-800 relative overflow-hidden">
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 shrink-0">
+            <Gauge className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+                GTE-GUI-003 / GTE-MTX-001
+              </span>
+              <span className="text-xs text-slate-400">•</span>
+              <span className="text-xs text-slate-300 font-semibold">UCI Honda</span>
+            </div>
+            <h3 className="text-base font-black text-white mt-0.5">
+              Matriz de Obsolescencia y Renovación Tecnológica
+            </h3>
+            <p className="text-xs text-slate-300">
+              Evaluación multidimensional de tecnologías biomédicas, priorización de reposición y seguimiento de ciclo de vida.
+            </p>
+          </div>
+        </div>
+        <Button
+          onClick={() => navigate('/obsolescence')}
+          className="bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold h-10 px-5 shrink-0 shadow-md relative z-10"
+        >
+          Consultar Matriz Oficial
+        </Button>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

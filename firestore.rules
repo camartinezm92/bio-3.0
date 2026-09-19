@@ -198,5 +198,9 @@ service cloud.firestore {
     match /minor_devices_inventories/{inventoryId} {
       allow read, write: if isActive();
     }
+
+    match /obsolescence_evaluations/{evalId} {
+      allow read, write: if isActive();
+    }
   }
 }

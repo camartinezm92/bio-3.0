@@ -36,6 +36,15 @@ export interface Equipment {
   biomedicalType: 'diagnostic' | 'treatment' | 'rehabilitation' | 'support';
   acquisitionDate?: string;
   warrantyExpiration?: string;
+  manufacturingYear?: number;
+  acquisitionYear?: number;
+  usefulLifeYears?: number;
+  cost?: number;
+  lastObsolescenceIndex?: number;
+  lastObsolescenceLevel?: 'Bajo' | 'Moderado' | 'Medio' | 'Alto' | 'Crítico';
+  lastObsolescenceAction?: string;
+  lastObsolescenceHorizon?: string;
+  lastObsolescenceDate?: string;
   lastMaintenance?: string;
   nextMaintenance?: string;
   maintenanceFrequency: number; // in months
@@ -332,3 +341,5 @@ export interface MinorDeviceReport {
   attachmentUrl?: string; // certificate link for external
   createdAt?: any;
 }
+
+export * from './obsolescence';

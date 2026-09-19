@@ -21,12 +21,14 @@ import { cn } from '@/lib/utils';
 import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { deleteDoc, doc, onSnapshot, collection, query, where, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Equipment, MaintenanceReport, Transfer } from '@/types';
+import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation } from '@/types';
 import { syncEquipmentWithHistory } from '@/lib/sync-logic';
 
 import MaintenanceForm from '@/components/forms/MaintenanceForm';
 import { CalibrationForm } from '@/components/forms/CalibrationForm';
 import TransferForm from '@/components/forms/TransferForm';
+import { ObsolescenceBar } from '@/components/obsolescence/ObsolescenceBar';
+import { ObsolescenceEvaluationModal } from '@/components/obsolescence/ObsolescenceEvaluationModal';
 
 import { generateMaintenancePDF, generateEquipmentCVPDF } from '@/lib/pdfGenerator';
 
@@ -47,6 +49,8 @@ export default function EquipmentLifeCycle() {
   const [deletingReport, setDeletingReport] = React.useState(false);
   const [deletingTransfer, setDeletingTransfer] = React.useState(false);
   const [isExporting, setIsExporting] = React.useState(false);
+  const [obsolescenceEvaluation, setObsolescenceEvaluation] = React.useState<ObsolescenceEvaluation | null>(null);
+  const [showObsolescenceModal, setShowObsolescenceModal] = React.useState(false);
 
   const handleDownloadReport = (report: MaintenanceReport) => {
     // If it's an external report or calibration with an attachment, open the link
@@ -156,10 +160,21 @@ export default function EquipmentLifeCycle() {
       setLoading(false);
     });
 
+    const unsubscribeObs = onSnapshot(doc(db, 'obsolescence_evaluations', `obs-${id}`), (docSnap) => {
+      if (docSnap.exists()) {
+        setObsolescenceEvaluation({ ...docSnap.data(), id: docSnap.id } as ObsolescenceEvaluation);
+      } else {
+        setObsolescenceEvaluation(null);
+      }
+    }, (error) => {
+      console.warn("EquipmentLifeCycle obsolescence snapshot error:", error);
+    });
+
     return () => {
       unsubscribeEq();
       unsubscribeReports();
       unsubscribeTransfers();
+      unsubscribeObs();
     };
   }, [id]);
 
@@ -411,6 +426,14 @@ export default function EquipmentLifeCycle() {
           </Button>
         </div>
       </div>
+
+      {/* Barra de Salud y Obsolescencia Tecnológica (GTE-MTX-001) */}
+      <ObsolescenceBar
+        equipment={equipment}
+        reports={reports}
+        existingEvaluation={obsolescenceEvaluation}
+        onOpenEvaluationModal={() => setShowObsolescenceModal(true)}
+      />
 
       <div className="grid gap-8 md:grid-cols-3">
         <Card className="md:col-span-1 border-none shadow-xl shadow-slate-200/50 rounded-3xl overflow-hidden">
@@ -961,6 +984,16 @@ export default function EquipmentLifeCycle() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Evaluación y Gestión de Obsolescencia (GTE-MTX-001) */}
+      <ObsolescenceEvaluationModal
+        open={showObsolescenceModal}
+        onOpenChange={setShowObsolescenceModal}
+        equipment={equipment}
+        reports={reports}
+        existingEvaluation={obsolescenceEvaluation}
+        onSaved={(saved) => setObsolescenceEvaluation(saved)}
+      />
     </div>
   );
 }

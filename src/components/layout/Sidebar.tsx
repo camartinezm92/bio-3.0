@@ -13,7 +13,8 @@ import {
   ShieldCheck,
   Clock,
   UserCog,
-  Layers
+  Layers,
+  Gauge
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     { icon: LayoutDashboard, label: 'Dashboard', href: '/', sectionId: 'dashboard' },
     { icon: Stethoscope, label: 'Inventario', href: '/inventory', sectionId: 'inventory' },
     { icon: Layers, label: 'Instru. / Menores', href: '/minor-devices', sectionId: 'minor_devices' },
+    { icon: Gauge, label: 'Obsolescencia', href: '/obsolescence', sectionId: 'obsolescence' },
     { icon: ArrowLeftRight, label: 'Traslados', href: '/transfers', sectionId: 'transfers' },
     { icon: Clock, label: 'Cronograma', href: '/schedule', sectionId: 'schedule' },
     { icon: ClipboardList, label: 'Reportes', href: '/reports', sectionId: 'reports' },
@@ -74,6 +76,7 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     if (isAdmin) return true;
     if (item.sectionId === 'dashboard') return true;
     if (item.sectionId === 'minor_devices') return true;
+    if (item.sectionId === 'obsolescence') return true;
     if (item.sectionId === 'settings') return true;
     return user?.permissions?.[item.sectionId]?.view;
   });

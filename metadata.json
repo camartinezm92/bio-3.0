@@ -1,6 +1,6 @@
 {
   "name": "Biotech",
-  "description": "Sistema de gestión de inventario, mantenimiento y cumplimiento normativo para equipos biomédicos.",
+  "description": "Sistema integral de gestión de tecnologías biomédicas, ciclo de vida, trazabilidad de mantenimiento y matriz de evaluación de obsolescencia institucional (GTE-GUI-003 / GTE-MTX-001).",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

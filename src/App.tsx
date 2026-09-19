@@ -19,6 +19,7 @@ import UserManagement from './pages/UserManagement';
 import Landing from './pages/Landing';
 import PendingApproval from './pages/PendingApproval';
 import MinorDevices from './pages/MinorDevices';
+import ObsolescenceMatrix from './pages/ObsolescenceMatrix';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
 import { db } from './lib/firebase';
@@ -42,6 +43,7 @@ function PageTitle() {
       '/settings': 'Configuración de Alertas',
       '/users': 'Gestión de Usuarios',
       '/minor-devices': 'Dispositivos e Instrumental',
+      '/obsolescence': 'Matriz de Obsolescencia',
       '/login': 'Iniciar Sesión',
       '/welcome': 'Bienvenido',
       '/pending': 'Pendiente de Aprobación'
@@ -140,6 +142,7 @@ function AppRoutes() {
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/providers" element={<Providers />} />
         <Route path="/minor-devices" element={<MinorDevices />} />
+        <Route path="/obsolescence" element={<ObsolescenceMatrix />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/users" element={user?.role?.toUpperCase() === 'ADMIN' ? <UserManagement /> : <Navigate to="/" />} />
       </Route>
