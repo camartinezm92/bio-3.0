@@ -17,7 +17,7 @@ import {
   calculateObsolescenceIndex,
   classifyObsolescence
 } from '@/lib/obsolescence-calculator';
-import { db } from '@/lib/firebase';
+import { db, cleanFirestoreData } from '@/lib/firebase';
 import { collection, onSnapshot, query, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -41,6 +41,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { ObsolescenceEvaluationModal } from '@/components/obsolescence/ObsolescenceEvaluationModal';
+import { ConfirmModal, FeedbackModal } from '@/components/ui/ConfirmModal';
 import {
   Gauge,
   Search,
@@ -59,8 +60,14 @@ import {
   TrendingUp,
   DollarSign,
   Layers,
-  BookOpen
+  BookOpen,
+  X,
+  Trash2,
+  Calendar,
+  User,
+  History as HistoryIcon
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -87,10 +94,50 @@ export default function ObsolescenceMatrix() {
 
   // Estado para nuevo seguimiento (Pág. 3)
   const [newFollowUpEquipmentId, setNewFollowUpEquipmentId] = React.useState('');
+  const [followUpSearchQuery, setFollowUpSearchQuery] = React.useState('');
+  const [isFollowUpSearchOpen, setIsFollowUpSearchOpen] = React.useState(false);
+  const [followUpFilterPriorityOnly, setFollowUpFilterPriorityOnly] = React.useState(false);
+  const followUpDropdownRef = React.useRef<HTMLDivElement>(null);
+
   const [newFollowUpActivity, setNewFollowUpActivity] = React.useState('');
   const [newFollowUpResult, setNewFollowUpResult] = React.useState('');
   const [newFollowUpAction, setNewFollowUpAction] = React.useState('');
   const [submittingFollowUp, setSubmittingFollowUp] = React.useState(false);
+  const [followUpTableSearch, setFollowUpTableSearch] = React.useState('');
+
+  // Modales in-app de confirmación y retroalimentación (evitando window.alert y window.confirm)
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = React.useState<{
+    equipmentId: string;
+    followUpId: string;
+    equipmentName: string;
+  } | null>(null);
+  const [isDeletingFollowUp, setIsDeletingFollowUp] = React.useState(false);
+
+  const [feedbackModal, setFeedbackModal] = React.useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+  } | null>(null);
+
+  const showFeedback = (
+    title: string,
+    description: string,
+    type: 'success' | 'error' | 'warning' | 'info' = 'info'
+  ) => {
+    setFeedbackModal({ isOpen: true, title, description, type });
+  };
+
+  // Cerrar desplegable de búsqueda al hacer clic por fuera
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (followUpDropdownRef.current && !followUpDropdownRef.current.contains(event.target as Node)) {
+        setIsFollowUpSearchOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Cargar datos en tiempo real de Firestore
   React.useEffect(() => {
@@ -188,8 +235,10 @@ export default function ObsolescenceMatrix() {
   const followUpItems = React.useMemo(() => {
     const list: {
       evaluationId: string;
+      equipmentId: string;
       equipmentName: string;
       equipmentCode: string;
+      serial: string;
       serviceName: string;
       index: number;
       level: ObsolescenceLevel;
@@ -202,8 +251,10 @@ export default function ObsolescenceMatrix() {
         ev.followUps.forEach(f => {
           list.push({
             evaluationId: ev.id,
+            equipmentId: ev.equipmentId,
             equipmentName: ev.equipmentName,
             equipmentCode: ev.equipmentCode,
+            serial: ev.serial || 'S/N',
             serviceName: ev.serviceName,
             index: ev.index,
             level: ev.level,
@@ -216,6 +267,56 @@ export default function ObsolescenceMatrix() {
 
     return list.sort((a, b) => new Date(b.followUp.date).getTime() - new Date(a.followUp.date).getTime());
   }, [allEvaluations]);
+
+  // Seguimientos filtrados por búsqueda rápida
+  const filteredFollowUpItems = React.useMemo(() => {
+    if (!followUpTableSearch.trim()) return followUpItems;
+    const q = followUpTableSearch.toLowerCase();
+    return followUpItems.filter(item =>
+      (item.equipmentName || '').toLowerCase().includes(q) ||
+      (item.equipmentCode || '').toLowerCase().includes(q) ||
+      (item.serial || '').toLowerCase().includes(q) ||
+      (item.serviceName || '').toLowerCase().includes(q) ||
+      (item.followUp.activity || '').toLowerCase().includes(q) ||
+      (item.followUp.result || '').toLowerCase().includes(q) ||
+      (item.followUp.responsibleName || '').toLowerCase().includes(q) ||
+      ((item.followUp.newAction || item.action) || '').toLowerCase().includes(q)
+    );
+  }, [followUpItems, followUpTableSearch]);
+
+  // Equipo seleccionado para seguimiento en Página 3
+  const selectedFollowUpEval = React.useMemo(() => {
+    return allEvaluations.find(ev => ev.equipmentId === newFollowUpEquipmentId);
+  }, [allEvaluations, newFollowUpEquipmentId]);
+
+  // Lista de tecnologías ordenadas alfabéticamente (A-Z) y filtradas para el seguimiento
+  const sortedAndFilteredFollowUpEvaluations = React.useMemo(() => {
+    let list = [...allEvaluations];
+
+    // Orden alfabético estricto por nombre de equipo y serial
+    list.sort((a, b) => {
+      const cmp = (a.equipmentName || '').localeCompare(b.equipmentName || '', 'es', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      return (a.serial || '').localeCompare(b.serial || '', 'es');
+    });
+
+    if (followUpFilterPriorityOnly) {
+      list = list.filter(ev => ev.level === 'Alto' || ev.level === 'Crítico');
+    }
+
+    const q = followUpSearchQuery.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter(ev => {
+      const name = (ev.equipmentName || '').toLowerCase();
+      const serial = (ev.serial || '').toLowerCase();
+      const code = (ev.equipmentCode || '').toLowerCase();
+      const service = (ev.serviceName || '').toLowerCase();
+      const brand = (ev.brand || '').toLowerCase();
+      const model = (ev.model || '').toLowerCase();
+      return name.includes(q) || serial.includes(q) || code.includes(q) || service.includes(q) || brand.includes(q) || model.includes(q);
+    });
+  }, [allEvaluations, followUpSearchQuery, followUpFilterPriorityOnly]);
 
   // Abrir modal de evaluación para un equipo específico
   const handleOpenEvalModal = (equipmentId: string) => {
@@ -230,7 +331,11 @@ export default function ObsolescenceMatrix() {
   const handleCreateFollowUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFollowUpEquipmentId || !newFollowUpActivity || !newFollowUpResult) {
-      alert('Por favor complete los campos obligatorios del seguimiento.');
+      showFeedback(
+        'Campos Incompletos',
+        'Por favor seleccione una tecnología biomédica e ingrese tanto la actividad realizada como el resultado obtenido.',
+        'warning'
+      );
       return;
     }
 
@@ -251,21 +356,68 @@ export default function ObsolescenceMatrix() {
 
       const updatedFollowUps = [...(targetEval.followUps || []), newEntry];
 
-      await setDoc(doc(db, 'obsolescence_evaluations', evalId), {
+      await setDoc(doc(db, 'obsolescence_evaluations', evalId), cleanFirestoreData({
         ...targetEval,
         followUps: updatedFollowUps,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      }), { merge: true });
 
+      setNewFollowUpEquipmentId('');
+      setFollowUpSearchQuery('');
+      setIsFollowUpSearchOpen(false);
       setNewFollowUpActivity('');
       setNewFollowUpResult('');
       setNewFollowUpAction('');
-      alert('Seguimiento registrado exitosamente en la Matriz GTE-MTX-001.');
+      showFeedback(
+        'Seguimiento Registrado',
+        'La gestión y sus acuerdos han sido guardados exitosamente en la bitácora institucional (GTE-MTX-001).',
+        'success'
+      );
     } catch (err) {
       console.error('Error guardando seguimiento:', err);
-      alert('Error al registrar el seguimiento.');
+      showFeedback(
+        'Error al Guardar',
+        'Ocurrió un error al intentar registrar el seguimiento. Por favor intente nuevamente.',
+        'error'
+      );
     } finally {
       setSubmittingFollowUp(false);
+    }
+  };
+
+  // Ejecutar eliminación confirmada in-app
+  const handleExecuteDeleteFollowUp = async () => {
+    if (!deleteConfirmTarget) return;
+    setIsDeletingFollowUp(true);
+    try {
+      const { equipmentId, followUpId, equipmentName } = deleteConfirmTarget;
+      const evalId = `obs-${equipmentId}`;
+      const targetEval = allEvaluations.find(ev => ev.equipmentId === equipmentId);
+      if (!targetEval) return;
+
+      const updatedFollowUps = (targetEval.followUps || []).filter((fu: any) => fu.id !== followUpId);
+
+      await setDoc(doc(db, 'obsolescence_evaluations', evalId), cleanFirestoreData({
+        ...targetEval,
+        followUps: updatedFollowUps,
+        updatedAt: new Date().toISOString()
+      }), { merge: true });
+
+      setDeleteConfirmTarget(null);
+      showFeedback(
+        'Registro Eliminado',
+        `El registro de seguimiento para "${equipmentName || 'la tecnología'}" fue eliminado exitosamente.`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Error eliminando seguimiento:', err);
+      showFeedback(
+        'Error al Eliminar',
+        'No fue posible eliminar el registro de seguimiento. Por favor intente de nuevo.',
+        'error'
+      );
+    } finally {
+      setIsDeletingFollowUp(false);
     }
   };
 
@@ -935,20 +1087,155 @@ export default function ObsolescenceMatrix() {
             <CardContent className="p-5">
               <form onSubmit={handleCreateFollowUp} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700">Tecnología Biomédica *</label>
-                    <Select value={newFollowUpEquipmentId} onValueChange={setNewFollowUpEquipmentId}>
-                      <SelectTrigger className="rounded-xl h-10 text-xs bg-slate-50/50 border-slate-200">
-                        <SelectValue placeholder="Seleccione un equipo..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allEvaluations.map(ev => (
-                          <SelectItem key={ev.equipmentId} value={ev.equipmentId}>
-                            {ev.equipmentCode} - {ev.equipmentName} ({ev.level})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  {/* Selector de Tecnología Biomédica con Barra de Búsqueda y Orden Alfabético A-Z */}
+                  <div className="space-y-1.5 md:col-span-1 relative" ref={followUpDropdownRef}>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Search className="h-3.5 w-3.5 text-indigo-600" />
+                        Tecnología Biomédica *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setFollowUpFilterPriorityOnly(prev => !prev)}
+                        className={cn(
+                          "text-[10px] font-bold px-2 py-0.5 rounded transition-colors",
+                          followUpFilterPriorityOnly
+                            ? "bg-amber-100 text-amber-800 border border-amber-300"
+                            : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                        )}
+                        title="Alternar entre todas las tecnologías y sólo las que requieren renovación prioritaria"
+                      >
+                        {followUpFilterPriorityOnly ? "★ Solo Priorizados" : "Ver Priorizados"}
+                      </button>
+                    </div>
+
+                    {selectedFollowUpEval ? (
+                      <div className="flex items-center justify-between p-2.5 bg-indigo-50/60 border border-indigo-200 rounded-xl">
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-black text-slate-900 truncate">
+                              {selectedFollowUpEval.equipmentName}
+                            </p>
+                            <span className={cn(
+                              "text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0",
+                              getObsolescenceLevelStyles(selectedFollowUpEval.level).badgeBg
+                            )}>
+                              {selectedFollowUpEval.level} (IO: {selectedFollowUpEval.index.toFixed(2)})
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                            Serial: <span className="font-mono font-bold text-slate-700">{selectedFollowUpEval.serial || 'S/N'}</span>
+                            {selectedFollowUpEval.equipmentCode && (
+                              <> · Placa: <span className="font-mono text-slate-600">{selectedFollowUpEval.equipmentCode}</span></>
+                            )}
+                            {selectedFollowUpEval.serviceName && (
+                              <> · <span className="text-slate-600">{selectedFollowUpEval.serviceName}</span></>
+                            )}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setNewFollowUpEquipmentId('');
+                            setFollowUpSearchQuery('');
+                            setIsFollowUpSearchOpen(true);
+                          }}
+                          className="h-7 px-2 text-xs font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg shrink-0"
+                          title="Cambiar tecnología"
+                        >
+                          <X className="h-3.5 w-3.5 mr-1" />
+                          Cambiar
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                          <Input
+                            value={followUpSearchQuery}
+                            onChange={(e) => {
+                              setFollowUpSearchQuery(e.target.value);
+                              setIsFollowUpSearchOpen(true);
+                            }}
+                            onFocus={() => setIsFollowUpSearchOpen(true)}
+                            placeholder="Escribe nombre, serial, placa o servicio..."
+                            className="rounded-xl h-10 pl-9 pr-8 text-xs bg-slate-50/70 border-slate-200 focus:bg-white transition-all shadow-xs"
+                          />
+                          {followUpSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setFollowUpSearchQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Desplegable de búsqueda ordenado alfabéticamente A-Z */}
+                        {isFollowUpSearchOpen && (
+                          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden max-h-72 flex flex-col animate-in fade-in slide-in-from-top-1 duration-150">
+                            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-semibold">
+                              <span>Ordenado alfabéticamente (A-Z)</span>
+                              <span>{sortedAndFilteredFollowUpEvaluations.length} tecnologías</span>
+                            </div>
+                            <div className="overflow-y-auto divide-y divide-slate-100 max-h-60">
+                              {sortedAndFilteredFollowUpEvaluations.length === 0 ? (
+                                <div className="p-4 text-center text-xs text-slate-400">
+                                  No se encontraron tecnologías para &quot;{followUpSearchQuery}&quot;
+                                </div>
+                              ) : (
+                                sortedAndFilteredFollowUpEvaluations.map((ev) => {
+                                  const styles = getObsolescenceLevelStyles(ev.level);
+                                  return (
+                                    <button
+                                      key={ev.equipmentId}
+                                      type="button"
+                                      onClick={() => {
+                                        setNewFollowUpEquipmentId(ev.equipmentId);
+                                        setIsFollowUpSearchOpen(false);
+                                        setFollowUpSearchQuery('');
+                                      }}
+                                      className="w-full text-left p-3 hover:bg-indigo-50/70 transition-colors flex items-center justify-between gap-2 group cursor-pointer"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                                            {ev.equipmentName}
+                                          </p>
+                                          <span className={cn(
+                                            "text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0",
+                                            styles.badgeBg
+                                          )}>
+                                            {ev.level}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                          Serial: <span className="font-mono font-bold text-slate-700">{ev.serial || 'S/N'}</span>
+                                          {ev.equipmentCode && (
+                                            <> · Placa: <span className="font-mono text-slate-600">{ev.equipmentCode}</span></>
+                                          )}
+                                          {ev.serviceName && (
+                                            <> · <span className="text-slate-600">{ev.serviceName}</span></>
+                                          )}
+                                        </p>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <span className="text-[10px] font-bold text-slate-400 group-hover:text-indigo-600 transition-colors">
+                                          IO: {ev.index.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -995,56 +1282,169 @@ export default function ObsolescenceMatrix() {
 
           {/* Listado de Seguimientos */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            {/* Header con búsqueda rápida en la bitácora */}
+            <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-slate-900 text-white">
+                  <HistoryIcon className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900">
+                    Bitácora de Seguimiento a Decisiones y Renovación
+                  </h4>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Trazabilidad de gestiones, cotizaciones y acuerdos de Comité Técnico
+                  </p>
+                </div>
+                <Badge variant="outline" className="ml-1 bg-white text-slate-700 font-black text-xs px-2 py-0.5 border-slate-300">
+                  {filteredFollowUpItems.length} {filteredFollowUpItems.length === 1 ? 'registro' : 'registros'}
+                </Badge>
+              </div>
+
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                <Input
+                  value={followUpTableSearch}
+                  onChange={(e) => setFollowUpTableSearch(e.target.value)}
+                  placeholder="Filtrar bitácora por texto..."
+                  className="rounded-xl h-9 pl-8.5 pr-7 text-xs bg-white border-slate-200"
+                />
+                {followUpTableSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpTableSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Tabla con anchos definidos y texto normal multilínea sin superposiciones */}
             <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-slate-900 text-white">
-                  <TableRow className="hover:bg-slate-900 border-b border-slate-800 text-[11px] font-black uppercase tracking-wider">
-                    <TableHead className="text-white">Fecha</TableHead>
-                    <TableHead className="text-white">Tecnología</TableHead>
-                    <TableHead className="text-white">Servicio</TableHead>
-                    <TableHead className="text-white">Actividad Realizada</TableHead>
-                    <TableHead className="text-white">Resultado</TableHead>
-                    <TableHead className="text-white">Responsable</TableHead>
-                    <TableHead className="text-white">Nueva Acción</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {followUpItems.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-slate-400 text-sm">
-                        No hay actividades de seguimiento registradas. Utilice el formulario superior para registrar la primera acción.
-                      </TableCell>
-                    </TableRow>
+              <table className="w-full text-left border-collapse min-w-[1250px]">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider select-none">
+                    <th className="w-[110px] min-w-[110px] px-4 py-3.5 border-r border-slate-800">Fecha</th>
+                    <th className="w-[230px] min-w-[220px] px-4 py-3.5 border-r border-slate-800">Tecnología Biomédica</th>
+                    <th className="w-[160px] min-w-[140px] px-4 py-3.5 border-r border-slate-800">Servicio</th>
+                    <th className="min-w-[300px] px-4 py-3.5 border-r border-slate-800">Actividad Realizada</th>
+                    <th className="min-w-[300px] px-4 py-3.5 border-r border-slate-800">Resultado Obtenido</th>
+                    <th className="w-[160px] min-w-[140px] px-4 py-3.5 border-r border-slate-800">Responsable</th>
+                    <th className="w-[170px] min-w-[150px] px-4 py-3.5 border-r border-slate-800">Nueva Acción</th>
+                    <th className="w-[65px] min-w-[65px] px-2 py-3.5 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {filteredFollowUpItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-12 text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <HistoryIcon className="h-8 w-8 text-slate-300" />
+                          <p className="font-semibold text-slate-600">
+                            {followUpTableSearch ? 'No se encontraron registros con ese criterio.' : 'No hay actividades de seguimiento registradas.'}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {followUpTableSearch ? 'Intente con otra palabra clave.' : 'Utilice el formulario superior para registrar la primera gestión.'}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
                   ) : (
-                    followUpItems.map((item, idx) => (
-                      <TableRow key={idx} className="hover:bg-slate-50/80 transition-colors text-xs border-b border-slate-100">
-                        <TableCell className="font-bold text-slate-800 whitespace-nowrap">
-                          {item.followUp.date}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-bold text-slate-900">{item.equipmentName}</div>
-                          <div className="text-[10px] text-slate-400">{item.equipmentCode}</div>
-                        </TableCell>
-                        <TableCell className="font-medium text-slate-600">
-                          {item.serviceName}
-                        </TableCell>
-                        <TableCell className="font-medium text-slate-800 max-w-xs">
-                          {item.followUp.activity}
-                        </TableCell>
-                        <TableCell className="text-slate-600 max-w-xs">
-                          {item.followUp.result}
-                        </TableCell>
-                        <TableCell className="text-slate-600 whitespace-nowrap font-semibold">
-                          {item.followUp.responsibleName}
-                        </TableCell>
-                        <TableCell className="text-slate-900 font-bold whitespace-nowrap">
-                          {item.followUp.newAction || item.action}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    filteredFollowUpItems.map((item, idx) => {
+                      const levelStyle = getObsolescenceLevelStyles(item.level);
+                      return (
+                        <tr key={item.followUp.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                          {/* Fecha */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                              <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{item.followUp.date}</span>
+                            </div>
+                          </td>
+
+                          {/* Tecnología Biomédica */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal">
+                            <div className="space-y-1">
+                              <div className="flex items-start justify-between gap-1.5">
+                                <span className="font-bold text-slate-900 leading-snug">
+                                  {item.equipmentName}
+                                </span>
+                                <span className={cn(
+                                  "text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0",
+                                  levelStyle.badgeBg
+                                )}>
+                                  {item.level}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono space-y-0.5">
+                                <div>Serial: <span className="font-bold text-slate-700">{item.serial}</span></div>
+                                {item.equipmentCode && (
+                                  <div>Placa: <span className="text-slate-600">{item.equipmentCode}</span></div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Servicio */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal font-medium text-slate-700">
+                            <div className="flex items-center gap-1.5">
+                              <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{item.serviceName}</span>
+                            </div>
+                          </td>
+
+                          {/* Actividad Realizada */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal break-words">
+                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-900 font-medium leading-relaxed">
+                              {item.followUp.activity}
+                            </div>
+                          </td>
+
+                          {/* Resultado Obtenido */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal break-words">
+                            <div className="p-2.5 rounded-xl bg-indigo-50/40 border border-indigo-100 text-slate-800 font-normal leading-relaxed">
+                              {item.followUp.result}
+                            </div>
+                          </td>
+
+                          {/* Responsable */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal">
+                            <div className="flex items-center gap-1.5 font-semibold text-slate-700">
+                              <User className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{item.followUp.responsibleName}</span>
+                            </div>
+                          </td>
+
+                          {/* Nueva Acción */}
+                          <td className="px-4 py-3.5 align-top border-r border-slate-100 whitespace-normal">
+                            <span className="inline-block px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-900 border border-emerald-200/80 break-words leading-tight">
+                              {item.followUp.newAction || item.action}
+                            </span>
+                          </td>
+
+                          {/* Eliminar */}
+                          <td className="px-2 py-3.5 align-top text-center">
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmTarget({
+                                equipmentId: item.equipmentId,
+                                followUpId: item.followUp.id,
+                                equipmentName: item.equipmentName
+                              })}
+                              className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="Eliminar registro de seguimiento"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
-                </TableBody>
-              </Table>
+                </tbody>
+              </table>
             </div>
           </div>
         </TabsContent>
@@ -1154,6 +1554,31 @@ export default function ObsolescenceMatrix() {
           onSaved={(saved) => {
             setSavedEvaluations(prev => ({ ...prev, [saved.equipmentId]: saved }));
           }}
+        />
+      )}
+
+      {/* Modal In-App de Confirmación para Eliminar (evita confirm de navegador) */}
+      <ConfirmModal
+        isOpen={!!deleteConfirmTarget}
+        onClose={() => setDeleteConfirmTarget(null)}
+        onConfirm={handleExecuteDeleteFollowUp}
+        title="¿Eliminar registro de seguimiento?"
+        description={`Está a punto de eliminar este registro de la bitácora de seguimiento para "${deleteConfirmTarget?.equipmentName || 'la tecnología'}". Esta acción actualizará la matriz GTE-MTX-001.`}
+        confirmText="Sí, Eliminar"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="trash"
+        isLoading={isDeletingFollowUp}
+      />
+
+      {/* Modal In-App de Retroalimentación / Alertas (evita alert de navegador) */}
+      {feedbackModal && (
+        <FeedbackModal
+          isOpen={feedbackModal.isOpen}
+          onClose={() => setFeedbackModal(null)}
+          title={feedbackModal.title}
+          description={feedbackModal.description}
+          type={feedbackModal.type}
         />
       )}
     </div>

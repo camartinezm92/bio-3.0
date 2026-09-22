@@ -12,10 +12,12 @@ import {
   calculateObsolescenceIndex,
   classifyObsolescence,
   getObsolescenceLevelStyles,
-  autoEvaluateDimensions
+  autoEvaluateDimensions,
+  getEstimatedReplacementCost,
+  BIOMEDICAL_BENCHMARK_PRICES
 } from '@/lib/obsolescence-calculator';
 import { useAuth } from '@/lib/AuthContext';
-import { db } from '@/lib/firebase';
+import { db, cleanFirestoreData } from '@/lib/firebase';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   Dialog,
@@ -43,7 +45,8 @@ import {
   Sparkles,
   AlertTriangle,
   FileSpreadsheet,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 interface ObsolescenceEvaluationModalProps {
@@ -73,6 +76,7 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
 }) => {
   const { user } = useAuth();
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<'dimensions' | 'plan' | 'summary'>('dimensions');
 
   // Inicializar estado de evaluación
@@ -125,7 +129,7 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
         // Inicializar plan si sube a Alto o Crítico y no existe
         renewalPlan: (classification.level === 'Alto' || classification.level === 'Crítico')
           ? prev.renewalPlan || {
-              estimatedCost: equipment.cost ? equipment.cost * 1.2 : 0,
+              estimatedCost: getEstimatedReplacementCost(equipment),
               currency: 'COP',
               justification: 'Fallas recurrentes, evolución tecnológica o fin de soporte.',
               fundingSource: 'Presupuesto de inversión institucional',
@@ -178,7 +182,7 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
         ...evaluation,
         id: evalId,
         equipmentId: equipment.id,
-        equipmentName: equipment.name,
+        equipmentName: equipment.name || 'Sin nombre',
         equipmentCode: equipment.assetNumber || equipment.serial || equipment.id,
         serviceId: equipment.serviceId || 'NA',
         serviceName: equipment.serviceName || 'No asignado',
@@ -191,8 +195,22 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
         updatedAt: new Date().toISOString()
       };
 
+      if (equipment.manufacturingYear) {
+        finalEval.manufacturingYear = Number(equipment.manufacturingYear);
+      } else if (!finalEval.manufacturingYear) {
+        delete finalEval.manufacturingYear;
+      }
+
+      if (equipment.acquisitionYear) {
+        finalEval.acquisitionYear = Number(equipment.acquisitionYear);
+      } else if (!finalEval.acquisitionYear) {
+        delete finalEval.acquisitionYear;
+      }
+
+      const sanitizedData = cleanFirestoreData(finalEval);
+
       // 1. Guardar en colección obsolescence_evaluations
-      await setDoc(doc(db, 'obsolescence_evaluations', evalId), finalEval);
+      await setDoc(doc(db, 'obsolescence_evaluations', evalId), sanitizedData);
 
       // 2. Actualizar campos de obsolescencia en el documento de equipment
       await updateDoc(doc(db, 'equipment', equipment.id), {
@@ -207,7 +225,7 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
       onOpenChange(false);
     } catch (error) {
       console.error('Error al guardar evaluación de obsolescencia:', error);
-      alert('Error al guardar la evaluación. Por favor intente nuevamente.');
+      setSaveError('Error al guardar la evaluación. Por favor verifique su conexión e intente nuevamente.');
     } finally {
       setSaving(false);
     }
@@ -393,7 +411,25 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold text-slate-700">Costo Estimado de Reposición (COP)</Label>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-slate-700">Costo Estimado de Reposición (COP)</Label>
+                      {getEstimatedReplacementCost(equipment) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setEvaluation(prev => ({
+                            ...prev,
+                            renewalPlan: {
+                              ...prev.renewalPlan,
+                              estimatedCost: getEstimatedReplacementCost(equipment),
+                              status: prev.renewalPlan?.status || 'En planeación'
+                            }
+                          }))}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-md hover:bg-indigo-100 transition-colors"
+                        >
+                          Usar ref. ${getEstimatedReplacementCost(equipment).toLocaleString('es-CO')}
+                        </button>
+                      )}
+                    </div>
                     <Input
                       type="number"
                       value={evaluation.renewalPlan?.estimatedCost || ''}
@@ -484,6 +520,13 @@ export const ObsolescenceEvaluationModal: React.FC<ObsolescenceEvaluationModalPr
             </TabsContent>
           </Tabs>
         </div>
+
+        {saveError && (
+          <div className="mx-6 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{saveError}</span>
+          </div>
+        )}
 
         <DialogFooter className="p-4 px-6 bg-slate-50 rounded-b-3xl border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <p className="text-[11px] text-slate-400 font-medium">

@@ -38,6 +38,161 @@ export function calculateYearsInService(equipment: Equipment, currentYear = new 
 }
 
 /**
+ * Diccionario de Precios Comerciales de Reposición de Referencia (COP)
+ * Basado en cotizaciones de mercado y valores institucionales para UCI / Hospitalización
+ */
+export const BIOMEDICAL_BENCHMARK_PRICES: { [key: string]: { label: string; cost: number; category: string } } = {
+  infusion_pump: { label: 'Bomba de Infusión', cost: 4500000, category: 'Soporte e Infusión' },
+  uci_monitor: { label: 'Monitor Signos Vitales UCI (Multiparámetro)', cost: 5000000, category: 'Monitoreo' },
+  basic_monitor: { label: 'Monitor Signos Vitales Básico / Transporte', cost: 3500000, category: 'Monitoreo' },
+  mechanical_ventilator: { label: 'Ventilador Mecánico UCI', cost: 50000000, category: 'Soporte Vital' },
+  transport_ventilator: { label: 'Ventilador Mecánico de Transporte', cost: 25000000, category: 'Soporte Vital' },
+  anesthesia_machine: { label: 'Máquina de Anestesia', cost: 90000000, category: 'Quirúrgico' },
+  defibrillator: { label: 'Desfibrilador Bifásico con Monitor', cost: 50000000, category: 'Soporte Vital' },
+  aed: { label: 'Desfibrilador Externo Automático (DEA)', cost: 8000000, category: 'Soporte Vital' },
+  electrocardiograph: { label: 'Electrocardiógrafo', cost: 25000000, category: 'Diagnóstico' },
+  aspirator: { label: 'Succionador / Aspirador de Secreciones', cost: 3000000, category: 'Soporte e Infusión' },
+  electrosurgical_unit: { label: 'Electrobisturí / Unidad Electroquirúrgica', cost: 40000000, category: 'Quirúrgico' },
+  surgical_table: { label: 'Mesa de Cirugía', cost: 30000000, category: 'Quirúrgico' },
+  surgical_light: { label: 'Lámpara Cielítica / Quirófano', cost: 25000000, category: 'Quirúrgico' },
+  hospital_bed: { label: 'Cama Hospitalaria / UCI Eléctrica', cost: 15000000, category: 'Mobiliario Clínico' },
+  stretcher: { label: 'Camilla de Transporte / Urgencias', cost: 6000000, category: 'Mobiliario Clínico' },
+  videolaryngoscope: { label: 'Videolaringoscopio', cost: 15000000, category: 'Vía Aérea' },
+  ultrasound: { label: 'Ecógrafo / Ultrasonido Portátil UCI', cost: 70000000, category: 'Diagnóstico' },
+  autoclave: { label: 'Autoclave / Esterilizador a Vapor', cost: 35000000, category: 'Esterilización' },
+  incubator: { label: 'Incubadora Neonatal / Cuna Térmica', cost: 45000000, category: 'Neonatal' },
+  oxygen_concentrator: { label: 'Concentrador de Oxígeno', cost: 6000000, category: 'Soporte Respiratorio' },
+  transient_pacemaker: { label: 'Marcapasos Externo Transitorio', cost: 20000000, category: 'Cardiovascular' },
+  fluid_warmer: { label: 'Calentador de Fluidos / Sangre', cost: 8000000, category: 'Soporte' },
+  patient_lift: { label: 'Grúa de Traslado de Pacientes', cost: 8500000, category: 'Mobiliario' },
+  enteral_pump: { label: 'Bomba de Nutrición Enteral', cost: 4000000, category: 'Soporte e Infusión' },
+  // Dispositivos menores e instrumental clínico
+  stethoscope: { label: 'Fonendoscopio', cost: 120000, category: 'Dispositivos Menores' },
+  diagnostic_set: { label: 'Equipo de Órganos (Otoscopio / Oftalmoscopio)', cost: 500000, category: 'Dispositivos Menores' },
+  sphygmomanometer: { label: 'Tensiómetro / Esfigmomanómetro', cost: 200000, category: 'Dispositivos Menores' },
+  pulse_oximeter: { label: 'Pulsoxímetro Portátil', cost: 250000, category: 'Dispositivos Menores' },
+  thermometer: { label: 'Termómetro Digital / Infrarrojo', cost: 120000, category: 'Dispositivos Menores' },
+  glucometer: { label: 'Glucómetro', cost: 120000, category: 'Dispositivos Menores' },
+  nebulizer: { label: 'Nebulizador', cost: 300000, category: 'Dispositivos Menores' },
+  scale: { label: 'Báscula con Tallímetro / Pesa Bebé', cost: 800000, category: 'Dispositivos Menores' },
+  air_mattress: { label: 'Colchón Antiescaras con Compresor', cost: 600000, category: 'Dispositivos Menores' }
+};
+
+/**
+ * Estima de forma inteligente el costo comercial de reposición en pesos colombianos (COP)
+ * priorizando el costo registrado en inventario, o mapeando el tipo de tecnología.
+ */
+export function getEstimatedReplacementCost(equipment: { name?: string; cost?: number }): number {
+  if (equipment.cost && equipment.cost > 0) {
+    return Math.round(equipment.cost * 1.15);
+  }
+
+  const name = (equipment.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (name.includes('bomba') && (name.includes('infus') || name.includes('jeringa') || name.includes('volumet'))) {
+    return BIOMEDICAL_BENCHMARK_PRICES.infusion_pump.cost;
+  }
+  if (name.includes('enteral')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.enteral_pump.cost;
+  }
+  if (name.includes('monitor')) {
+    if (name.includes('transporte') || name.includes('basico')) {
+      return BIOMEDICAL_BENCHMARK_PRICES.basic_monitor.cost;
+    }
+    return BIOMEDICAL_BENCHMARK_PRICES.uci_monitor.cost;
+  }
+  if (name.includes('ventilador') || name.includes('respirador')) {
+    if (name.includes('transporte')) {
+      return BIOMEDICAL_BENCHMARK_PRICES.transport_ventilator.cost;
+    }
+    return BIOMEDICAL_BENCHMARK_PRICES.mechanical_ventilator.cost;
+  }
+  if (name.includes('anestesia')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.anesthesia_machine.cost;
+  }
+  if (name.includes('desfibrilador') || name.includes('cardiodesfibrilador')) {
+    if (name.includes('dea') || name.includes('automatico')) {
+      return BIOMEDICAL_BENCHMARK_PRICES.aed.cost;
+    }
+    return BIOMEDICAL_BENCHMARK_PRICES.defibrillator.cost;
+  }
+  if (name.includes('electrocardio') || name.includes('ecg')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.electrocardiograph.cost;
+  }
+  if (name.includes('succionador') || name.includes('aspirador')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.aspirator.cost;
+  }
+  if (name.includes('electrobisturi') || name.includes('electro bisturi') || name.includes('electroquirurg')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.electrosurgical_unit.cost;
+  }
+  if (name.includes('cama') && (name.includes('hospital') || name.includes('uci') || name.includes('electr'))) {
+    return BIOMEDICAL_BENCHMARK_PRICES.hospital_bed.cost;
+  }
+  if (name.includes('mesa') && (name.includes('cirugia') || name.includes('quirurgica'))) {
+    return BIOMEDICAL_BENCHMARK_PRICES.surgical_table.cost;
+  }
+  if (name.includes('cielitica') || name.includes('lampara de cirugia') || name.includes('lampara quirurg')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.surgical_light.cost;
+  }
+  if (name.includes('camilla')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.stretcher.cost;
+  }
+  if (name.includes('videolaringo')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.videolaryngoscope.cost;
+  }
+  if (name.includes('ecografo') || name.includes('ultrasonido')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.ultrasound.cost;
+  }
+  if (name.includes('autoclave') || name.includes('esterilizador')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.autoclave.cost;
+  }
+  if (name.includes('incubadora') || name.includes('cuna termica')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.incubator.cost;
+  }
+  if (name.includes('concentrador') && name.includes('oxigeno')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.oxygen_concentrator.cost;
+  }
+  if (name.includes('marcapasos')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.transient_pacemaker.cost;
+  }
+  if (name.includes('calentador') && (name.includes('fluido') || name.includes('sangre'))) {
+    return BIOMEDICAL_BENCHMARK_PRICES.fluid_warmer.cost;
+  }
+  if (name.includes('grua')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.patient_lift.cost;
+  }
+  if (name.includes('fonendo') || name.includes('estetoscopio')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.stethoscope.cost;
+  }
+  if (name.includes('organos') || name.includes('oftalmo') || name.includes('otoscopio')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.diagnostic_set.cost;
+  }
+  if (name.includes('tensio') || name.includes('esfigmo')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.sphygmomanometer.cost;
+  }
+  if (name.includes('pulsoximetro') || name.includes('oximetro')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.pulse_oximeter.cost;
+  }
+  if (name.includes('termometro')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.thermometer.cost;
+  }
+  if (name.includes('glucometro')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.glucometer.cost;
+  }
+  if (name.includes('nebulizador')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.nebulizer.cost;
+  }
+  if (name.includes('bascula') || name.includes('pesa')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.scale.cost;
+  }
+  if (name.includes('colchon') && name.includes('antiescara')) {
+    return BIOMEDICAL_BENCHMARK_PRICES.air_mattress.cost;
+  }
+
+  return 5000000; // Valor base referencial
+}
+
+/**
  * Determina la vida útil de referencia en años según el tipo de equipo y clase de riesgo
  */
 export function getReferenceUsefulLife(equipment: Equipment): number {
@@ -358,18 +513,16 @@ export function generateFullObsolescenceEvaluation(
   const index = calculateObsolescenceIndex(scores);
   const classification = classifyObsolescence(index, currentYear);
 
-  return {
+  const evaluation: ObsolescenceEvaluation = {
     id: `obs-${equipment.id}`,
     equipmentId: equipment.id,
-    equipmentName: equipment.name,
+    equipmentName: equipment.name || 'Sin nombre',
     equipmentCode: equipment.assetNumber || equipment.serial || equipment.id,
     serviceId: equipment.serviceId || 'NA',
     serviceName: equipment.serviceName || 'No asignado',
     brand: equipment.brand || 'N/A',
     model: equipment.model || 'N/A',
     serial: equipment.serial || 'N/A',
-    manufacturingYear: equipment.manufacturingYear,
-    acquisitionYear: equipment.acquisitionYear,
     yearsInService,
     usefulLifeYears: usefulLife,
     riskClass: equipment.riskClass || 'IIa',
@@ -385,15 +538,26 @@ export function generateFullObsolescenceEvaluation(
     evaluationDate: new Date().toISOString(),
     observations: classification.level === 'Crítico' || classification.level === 'Alto'
       ? 'Tecnología priorizada para inclusión en el plan de renovación y gestión presupuestal.'
-      : 'Tecnología funcional; continuar seguimiento periódico según cronograma.',
-    renewalPlan: (classification.level === 'Alto' || classification.level === 'Crítico') ? {
-      estimatedCost: equipment.cost ? equipment.cost * 1.2 : 0,
+      : 'Tecnología funcional; continuar seguimiento periódico según cronograma.'
+  };
+
+  if (equipment.manufacturingYear) {
+    evaluation.manufacturingYear = Number(equipment.manufacturingYear);
+  }
+  if (equipment.acquisitionYear) {
+    evaluation.acquisitionYear = Number(equipment.acquisitionYear);
+  }
+  if (classification.level === 'Alto' || classification.level === 'Crítico') {
+    evaluation.renewalPlan = {
+      estimatedCost: getEstimatedReplacementCost(equipment),
       currency: 'COP',
       justification: 'Fallas recurrentes, evolución tecnológica o pérdida de soporte de fabricante.',
       fundingSource: 'Presupuesto de inversión institucional',
       status: 'En planeación'
-    } : undefined
-  };
+    };
+  }
+
+  return evaluation;
 }
 
 /**

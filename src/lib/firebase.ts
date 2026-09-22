@@ -57,3 +57,32 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
+
+/**
+ * Recursively cleans an object before writing to Firestore by removing any fields that are `undefined`.
+ * Firestore throws errors if any field value is `undefined`.
+ */
+export function cleanFirestoreData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => cleanFirestoreData(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    // Preserve instances like Date or Firestore Timestamps
+    if (data instanceof Date || (data.constructor && data.constructor.name !== 'Object')) {
+      return data;
+    }
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = cleanFirestoreData(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
