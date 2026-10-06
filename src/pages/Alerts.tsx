@@ -17,6 +17,7 @@ import { Equipment, ComplianceSubmission, Service, AlertConfig } from '@/types';
 import { differenceInDays, parseISO, isAfter, isBefore, addDays, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { resolveEquipmentScope } from '@/lib/scopeUtils';
 import { 
   Sheet, 
   SheetContent, 
@@ -57,7 +58,13 @@ export default function Alerts() {
   const [showConfig, setShowConfig] = React.useState(false);
   const [showOmitted, setShowOmitted] = React.useState(false);
   const [config, setConfig] = React.useState<AlertConfig>(DEFAULT_CONFIG);
-  const [alerts, setAlerts] = React.useState<AppAlert[]>([]);
+  const [equipmentAlerts, setEquipmentAlerts] = React.useState<AppAlert[]>([]);
+  const [checklistAlerts, setChecklistAlerts] = React.useState<AppAlert[]>([]);
+
+  const alerts = React.useMemo(() => {
+    return [...equipmentAlerts, ...checklistAlerts].sort((a, b) => (b.severity === 'critical' ? 1 : -1));
+  }, [equipmentAlerts, checklistAlerts]);
+
   // Store dismissed alerts as { [id: string]: expirationTimestamp }
   const [dismissedMap, setDismissedMap] = React.useState<Record<string, number>>(() => {
     try {
@@ -107,7 +114,7 @@ export default function Alerts() {
       equipmentData.forEach(eq => {
         // Skip decommissioned equipment
         if (['baja', 'baja_repuestos'].includes(eq.status)) return;
-        const eqScope = eq.technologyScope || 'biomedical';
+        const eqScope = resolveEquipmentScope(eq);
 
         // 1. Check INVIMA Expiration (Only for biomedical technology)
         if (eqScope === 'biomedical') {
@@ -174,12 +181,7 @@ export default function Alerts() {
         }
       });
 
-      setAlerts(prev => {
-        const otherAlerts = (scope === 'biomedical' || scope === 'all')
-          ? prev.filter(a => a.type === 'checklist')
-          : [];
-        return [...eqAlerts, ...otherAlerts].sort((a, b) => b.severity === 'critical' ? 1 : -1);
-      });
+      setEquipmentAlerts(eqAlerts);
       setLoading(false);
     }, (error) => {
       console.warn("Alerts equipment snapshot error:", error);
@@ -191,9 +193,14 @@ export default function Alerts() {
       let services = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Service[];
       
       const setupSubmissions = (resolvedServices: Service[]) => {
-        return onSnapshot(collection(db, 'compliance_submissions'), (subsSnap) => {
+        return onSnapshot(collection(db, 'compliance_submissions'), async (subsSnap) => {
           const submissions = subsSnap.docs.map(doc => doc.data() as ComplianceSubmission);
           const checklistAlerts: AppAlert[] = [];
+
+          // Get equipment to identify services with equipment in each scope
+          const equipSnap = await getDoc(doc(db, 'config', 'alerts')).catch(() => null);
+          const allEqSnap = await import('firebase/firestore').then(f => f.getDocs(f.collection(db, 'equipment')));
+          const allEquip = allEqSnap.docs.map(d => d.data() as Equipment);
 
           const targetScopes: Array<'biomedical' | 'computing' | 'infrastructure'> = 
             scope === 'all' 
@@ -208,7 +215,17 @@ export default function Alerts() {
               ? 'Infraestructura, Redes Eléctricas RETIE y Gases (Res. 3100)' 
               : 'Dotación y Equipamiento Biomédico (Res. 3100)';
 
-            resolvedServices.forEach(service => {
+            // Only evaluate services that actually have active equipment in currScope
+            const servicesWithScope = new Set(
+              allEquip
+                .filter(e => resolveEquipmentScope(e) === currScope && !['baja', 'baja_repuestos'].includes(e.status))
+                .map(e => e.serviceId)
+                .filter(Boolean)
+            );
+
+            const relevantServices = resolvedServices.filter(s => servicesWithScope.has(s.id));
+
+            relevantServices.forEach(service => {
               const serviceSubs = submissions
                 .filter(s => s.serviceId === service.id && ((s.technologyScope || 'biomedical') === currScope))
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -251,10 +268,7 @@ export default function Alerts() {
             });
           });
 
-          setAlerts(prev => {
-            const eqAlerts = prev.filter(a => a.type !== 'checklist');
-            return [...eqAlerts, ...checklistAlerts].sort((a, b) => (a.severity === 'critical' ? -1 : 1));
-          });
+          setChecklistAlerts(checklistAlerts);
         }, (error) => {
           console.warn("Alerts submissions snapshot error:", error);
         });

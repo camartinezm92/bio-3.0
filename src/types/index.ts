@@ -17,7 +17,7 @@ export interface User {
   createdAt?: string;
 }
 
-export type TechnologyScope = 'biomedical' | 'computing' | 'infrastructure' | 'all';
+export type TechnologyScope = 'biomedical' | 'computing' | 'infrastructure' | 'other' | 'all';
 
 export interface Equipment {
   id: string;
@@ -30,7 +30,7 @@ export interface Equipment {
   assetNumber: string;
   serviceId: string;
   serviceName?: string;
-  technologyScope?: 'biomedical' | 'computing' | 'infrastructure';
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'other';
   status: 'active' | 'maintenance' | 'out_of_service' | 'paused' | 'reserva' | 'baja_repuestos' | 'baja';
   decommissioningActUrl?: string; // URL for "Acta de Baja" document
   decommissioningDate?: string;
@@ -142,7 +142,7 @@ export interface Provider {
   whatsapp?: string;
   email: string;
   specialties: string[];
-  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'all';
+  technologyScope?: TechnologyScope;
   createdAt: string;
 }
 
@@ -217,7 +217,7 @@ export interface MaintenanceReport {
   driveFileId?: string;
   driveFileUrl?: string;
   attachmentUrl?: string;
-  technologyScope?: 'biomedical' | 'computing' | 'infrastructure';
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'other';
   createdAt?: any;
 }
 

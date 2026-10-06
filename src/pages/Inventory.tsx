@@ -33,7 +33,8 @@ import {
   ArrowLeftRight,
   FileUp,
   FileText,
-  ExternalLink
+  ExternalLink,
+  Layers
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { 
@@ -58,6 +59,7 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { resolveEquipmentScope } from '@/lib/scopeUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import EquipmentForm from '@/components/forms/EquipmentForm';
@@ -89,6 +91,9 @@ export default function Inventory() {
   const [sortConfig, setSortConfig] = React.useState<{ key: keyof Equipment | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
   const [statusFilter, setStatusFilter] = React.useState<'all' | 'active' | 'out_of_service' | 'maintenance' | 'calibration'>('all');
   const [typeFilter, setTypeFilter] = React.useState<string>('all');
+  const [equipmentToChangeScope, setEquipmentToChangeScope] = React.useState<Equipment | null>(null);
+  const [newScopeValue, setNewScopeValue] = React.useState<'biomedical' | 'computing' | 'infrastructure' | 'other'>('biomedical');
+  const [updatingScope, setUpdatingScope] = React.useState(false);
 
   const handleSort = (key: keyof Equipment) => {
     setSortConfig(prev => ({
@@ -245,10 +250,17 @@ export default function Inventory() {
 
     if (sortConfig.key) {
       result.sort((a, b) => {
-        const aValue = a[sortConfig.key!];
-        const bValue = b[sortConfig.key!];
+        let aValue: any = a[sortConfig.key!];
+        let bValue: any = b[sortConfig.key!];
         
-        if (!aValue || !bValue) return 0;
+        if (sortConfig.key === 'technologyScope') {
+          aValue = resolveEquipmentScope(a);
+          bValue = resolveEquipmentScope(b);
+        }
+
+        if (!aValue && !bValue) return 0;
+        if (!aValue) return 1;
+        if (!bValue) return -1;
         
         if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
@@ -396,6 +408,32 @@ export default function Inventory() {
       });
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  const handleUpdateScope = async () => {
+    if (!equipmentToChangeScope) return;
+    setUpdatingScope(true);
+    try {
+      await updateDoc(doc(db, 'equipment', equipmentToChangeScope.id), {
+        technologyScope: newScopeValue
+      });
+      const scopeName = newScopeValue === 'biomedical' ? 'Biomédica' : newScopeValue === 'computing' ? 'Cómputo (TIC)' : newScopeValue === 'infrastructure' ? 'Infraestructura' : 'Otros';
+      setFeedback({
+        title: 'Segmento Tecnológico Actualizado',
+        message: `El equipo ${equipmentToChangeScope.name} ahora está asignado al segmento ${scopeName}.`,
+        type: 'success'
+      });
+      setEquipmentToChangeScope(null);
+    } catch (error: any) {
+      console.error('Error updating scope:', error);
+      setFeedback({
+        title: 'Error al Reasignar Segmento',
+        message: error.message || 'No se pudo actualizar el segmento del equipo.',
+        type: 'error'
+      });
+    } finally {
+      setUpdatingScope(false);
     }
   };
 
@@ -664,6 +702,19 @@ export default function Inventory() {
                 </TableHead>
                 <TableHead 
                   className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-[10px] cursor-pointer hover:text-primary transition-colors"
+                  onClick={() => handleSort('technologyScope')}
+                >
+                  <div className="flex items-center gap-2">
+                    Segmento
+                    {sortConfig.key === 'technologyScope' ? (
+                      sortConfig.direction === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 opacity-30" />
+                    )}
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="px-6 py-4 font-bold text-slate-500 uppercase tracking-wider text-[10px] cursor-pointer hover:text-primary transition-colors"
                   onClick={() => handleSort('serviceName')}
                 >
                   <div className="flex items-center gap-2">
@@ -715,16 +766,19 @@ export default function Inventory() {
                       >
                         {eq.name}
                       </button>
-                      {scope === 'all' && (
-                        <span className={cn(
-                          "inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border",
-                          (eq.technologyScope || 'biomedical') === 'biomedical' && "bg-emerald-50 text-emerald-700 border-emerald-200",
-                          eq.technologyScope === 'computing' && "bg-indigo-50 text-indigo-700 border-indigo-200",
-                          eq.technologyScope === 'infrastructure' && "bg-amber-50 text-amber-800 border-amber-200"
-                        )}>
-                          {(eq.technologyScope || 'biomedical') === 'biomedical' ? '🩺 Biomédica' : eq.technologyScope === 'computing' ? '💻 Cómputo' : '⚡ Infraestructura'}
-                        </span>
-                      )}
+                      {scope === 'all' && (() => {
+                        const eqScope = resolveEquipmentScope(eq);
+                        return (
+                          <span className={cn(
+                            "inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border",
+                            eqScope === 'biomedical' && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                            eqScope === 'computing' && "bg-indigo-50 text-indigo-700 border-indigo-200",
+                            eqScope === 'infrastructure' && "bg-amber-50 text-amber-800 border-amber-200"
+                          )}>
+                            {eqScope === 'biomedical' ? '🩺 Biomédica' : eqScope === 'computing' ? '💻 Cómputo' : '⚡ Infraestructura'}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </TableCell>
                   <TableCell className="px-6 py-5 text-slate-600 font-medium">{eq.brand}</TableCell>
@@ -746,6 +800,36 @@ export default function Inventory() {
                       </p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{eq.assetNumber}</p>
                     </div>
+                  </TableCell>
+                  <TableCell className="px-6 py-5">
+                    {(() => {
+                      const eqScope = resolveEquipmentScope(eq);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEquipmentToChangeScope(eq);
+                            setNewScopeValue(eqScope);
+                          }}
+                          title="Haga clic para cambiar el segmento de este equipo"
+                          className="cursor-pointer group flex items-center gap-1 transition-transform hover:scale-105 active:scale-95"
+                        >
+                          {eqScope === 'computing' ? (
+                            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 group-hover:bg-indigo-100">
+                              💻 TIC
+                            </Badge>
+                          ) : eqScope === 'infrastructure' ? (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 group-hover:bg-amber-100">
+                              ⚡ Industrial
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 group-hover:bg-emerald-100">
+                              🩺 Biomédico
+                            </Badge>
+                          )}
+                        </button>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="px-6 py-5">
                     <Badge variant="outline" className="bg-slate-50 border-slate-200 text-slate-600 rounded-lg">
@@ -827,6 +911,12 @@ export default function Inventory() {
                             <FileText className="mr-3 h-4 w-4 text-rose-600" /> Ver Acta de Baja
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onClick={() => { 
+                          setEquipmentToChangeScope(eq);
+                          setNewScopeValue(resolveEquipmentScope(eq));
+                        }} className="rounded-lg py-2.5 cursor-pointer">
+                          <Layers className="mr-3 h-4 w-4 text-indigo-600" /> Cambiar Segmento
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleDuplicate(eq)} className="rounded-lg py-2.5 cursor-pointer">
                           <Copy className="mr-3 h-4 w-4 text-slate-400" /> Duplicar Equipo
                         </DropdownMenuItem>
@@ -1031,6 +1121,109 @@ export default function Inventory() {
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Actualizando...</>
                 ) : (
                   'Guardar Cambios'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para Reasignar Segmento Tecnológico */}
+      <Dialog open={!!equipmentToChangeScope} onOpenChange={(open) => !open && setEquipmentToChangeScope(null)}>
+        <DialogContent className="max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
+              <Layers className="h-6 w-6 text-primary" /> Reasignar Segmento
+            </DialogTitle>
+            <DialogDescription className="font-medium text-slate-600">
+              Modifique el segmento tecnológico de <span className="font-bold text-slate-900">{equipmentToChangeScope?.name}</span> ({equipmentToChangeScope?.serial}) para definir en qué módulo e inventario se gestiona.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-slate-700">Seleccionar Segmento Tecnológico *</Label>
+              <div className="grid grid-cols-1 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setNewScopeValue('biomedical')}
+                  className={cn(
+                    "p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer",
+                    newScopeValue === 'biomedical'
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🩺</span>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Biomédica</p>
+                      <p className="text-[10px] text-slate-500">Equipos médicos, clínicos y asistenciales con INVIMA</p>
+                    </div>
+                  </div>
+                  {newScopeValue === 'biomedical' && <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewScopeValue('computing')}
+                  className={cn(
+                    "p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer",
+                    newScopeValue === 'computing'
+                      ? "bg-indigo-50 border-indigo-500 text-indigo-950 ring-2 ring-indigo-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">💻</span>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Cómputo y Sistemas (TIC)</p>
+                      <p className="text-[10px] text-slate-500">Computadores, servidores, switches, routers, portátiles</p>
+                    </div>
+                  </div>
+                  {newScopeValue === 'computing' && <CheckCircle2 className="h-5 w-5 text-indigo-600 shrink-0" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewScopeValue('infrastructure')}
+                  className={cn(
+                    "p-3 rounded-2xl border text-left flex items-center justify-between transition-all cursor-pointer",
+                    newScopeValue === 'infrastructure'
+                      ? "bg-amber-50 border-amber-500 text-amber-950 ring-2 ring-amber-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">⚡</span>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Infraestructura e Industrial</p>
+                      <p className="text-[10px] text-slate-500">UPS industriales, plantas eléctricas, clima, autoclaves</p>
+                    </div>
+                  </div>
+                  {newScopeValue === 'infrastructure' && <CheckCircle2 className="h-5 w-5 text-amber-600 shrink-0" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3">
+              <Button 
+                variant="outline" 
+                className="rounded-xl font-bold" 
+                onClick={() => setEquipmentToChangeScope(null)}
+                disabled={updatingScope}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                className="rounded-xl font-bold px-6 shadow-lg shadow-primary/20" 
+                onClick={handleUpdateScope}
+                disabled={updatingScope}
+              >
+                {updatingScope ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</>
+                ) : (
+                  'Reasignar Segmento'
                 )}
               </Button>
             </div>

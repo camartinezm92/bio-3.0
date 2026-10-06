@@ -26,6 +26,7 @@ import { db } from '@/lib/firebase';
 import { Equipment, MaintenanceReport, Service, ComplianceSubmission, AlertConfig } from '@/types';
 import { parseISO, differenceInDays } from 'date-fns';
 import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { resolveEquipmentScope } from '@/lib/scopeUtils';
 
 const DEFAULT_CONFIG: AlertConfig = {
   invimaLeadDays: 30,
@@ -153,7 +154,7 @@ export default function Dashboard() {
       if (['baja', 'baja_repuestos'].includes(eq.status)) return;
 
       // INVIMA (Only relevant for biomedical technology)
-      const eqScope = eq.technologyScope || 'biomedical';
+      const eqScope = resolveEquipmentScope(eq);
       if (eqScope === 'biomedical') {
         if (eq.registrationExpiration) {
           const expiration = parseISO(eq.registrationExpiration);
@@ -186,7 +187,18 @@ export default function Dashboard() {
         : [scope as 'biomedical' | 'computing' | 'infrastructure'];
 
     targetScopes.forEach(currScope => {
-      services.forEach(service => {
+      // Find services that actually have equipment in this scope
+      const servicesWithScope = new Set(
+        equipment
+          .filter(e => resolveEquipmentScope(e) === currScope && !['baja', 'baja_repuestos'].includes(e.status))
+          .map(e => e.serviceId)
+          .filter(Boolean)
+      );
+
+      // Only check services that have equipment in currScope
+      const relevantServices = services.filter(s => servicesWithScope.has(s.id));
+
+      relevantServices.forEach(service => {
         const serviceSubs = submissions
           .filter(s => s.serviceId === service.id && ((s.technologyScope || 'biomedical') === currScope))
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -212,7 +224,7 @@ export default function Dashboard() {
     });
 
     setTotalAlertCount(count);
-  }, [scopedEquipment, services, submissions, config, dismissedMap, scope]);
+  }, [scopedEquipment, equipment, services, submissions, config, dismissedMap, scope]);
 
   const totalEquip = scopedEquipment.length;
   const outOfService = scopedEquipment.filter(e => e.status === 'out_of_service' || e.status === 'maintenance' || e.status === 'paused');

@@ -3,6 +3,7 @@ import { TechnologyScope } from '@/types';
 import { Stethoscope, Laptop, Cpu, Layers, LucideIcon } from 'lucide-react';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { resolveEquipmentScope } from '@/lib/scopeUtils';
 
 export interface ScopeInfo {
   id: TechnologyScope;
@@ -66,6 +67,21 @@ export const SCOPES_CONFIG: Record<TechnologyScope, ScopeInfo> = {
     accentColor: 'amber',
     headerGradient: 'from-amber-950 via-slate-900 to-slate-900'
   },
+  other: {
+    id: 'other',
+    label: 'Otras Tecnologías Institucionales',
+    shortLabel: 'Otros Activos',
+    subtitle: 'Tecnologías y Equipos de Apoyo',
+    description: 'Mobiliario técnico, instrumentación auxiliar y tecnologías de soporte general.',
+    icon: Layers,
+    badgeBg: 'bg-purple-50',
+    badgeText: 'text-purple-800',
+    badgeBorder: 'border-purple-200',
+    activeBg: 'bg-purple-600',
+    textColor: 'text-purple-800',
+    accentColor: 'purple',
+    headerGradient: 'from-purple-950 via-slate-900 to-slate-900'
+  },
   all: {
     id: 'all',
     label: 'Consolidado General Institucional',
@@ -100,7 +116,7 @@ export function TechnologyScopeProvider({ children }: { children: React.ReactNod
   const [scope, setScopeState] = useState<TechnologyScope>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && (saved === 'biomedical' || saved === 'computing' || saved === 'infrastructure' || saved === 'all')) {
+      if (saved && (saved === 'biomedical' || saved === 'computing' || saved === 'infrastructure' || saved === 'other' || saved === 'all')) {
         return saved as TechnologyScope;
       }
     } catch (e) {
@@ -122,7 +138,7 @@ export function TechnologyScopeProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     const runMigration = async () => {
       try {
-        const migratedKey = 'hospital_migrated_scopes_v3';
+        const migratedKey = 'hospital_migrated_scopes_v4';
         if (localStorage.getItem(migratedKey)) return;
 
         const collectionsToMigrate = ['equipment', 'minor_devices', 'transfers', 'providers', 'reports'];
@@ -135,7 +151,19 @@ export function TechnologyScopeProvider({ children }: { children: React.ReactNod
 
             for (const d of snap.docs) {
               const data = d.data();
-              if (!data.technologyScope) {
+              const nameLower = String(data.name || data.equipmentName || '').toLowerCase();
+              const isMedical = 
+                !data.technologyScope ||
+                data.registrationInvima ||
+                data.biomedicalType ||
+                data.riskClass ||
+                nameLower.includes('nervio') ||
+                nameLower.includes('estimulador') ||
+                nameLower.includes('rx ') ||
+                nameLower.includes('rx-') ||
+                nameLower.includes('rayos x');
+
+              if (isMedical && data.technologyScope !== 'biomedical') {
                 batch.update(d.ref, { technologyScope: 'biomedical' });
                 count++;
                 total++;
@@ -152,7 +180,7 @@ export function TechnologyScopeProvider({ children }: { children: React.ReactNod
             }
 
             if (total > 0) {
-              console.log(`[Migration] Migrated ${total} legacy records in '${colName}' to 'biomedical' scope.`);
+              console.log(`[Migration] Migrated ${total} records in '${colName}' to 'biomedical' scope.`);
             }
           } catch (colErr) {
             console.warn(`Migration notice for ${colName}:`, colErr);
@@ -170,16 +198,16 @@ export function TechnologyScopeProvider({ children }: { children: React.ReactNod
   const scopeConfig = SCOPES_CONFIG[scope] || SCOPES_CONFIG.biomedical;
   const allScopes = Object.values(SCOPES_CONFIG);
 
-  const isScopeItem = (item: { technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | string }): boolean => {
+  const isScopeItem = (item: any): boolean => {
     if (scope === 'all') return true;
-    const itemScope = item.technologyScope || 'biomedical';
+    const itemScope = resolveEquipmentScope(item);
     return itemScope === scope;
   };
 
-  const filterByScope = <T extends { technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | string }>(items: T[]): T[] => {
+  const filterByScope = <T extends any>(items: T[]): T[] => {
     if (scope === 'all') return items;
     return items.filter(item => {
-      const itemScope = item.technologyScope || 'biomedical';
+      const itemScope = resolveEquipmentScope(item);
       return itemScope === scope;
     });
   };

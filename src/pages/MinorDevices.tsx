@@ -787,6 +787,7 @@ export default function MinorDevices() {
       providerName: device.providerName || 'N/A',
       providerCity: device.providerCity || 'N/A',
       manufacturerInfo: device.manufacturerInfo || { name: 'N/A', address: 'N/A', country: 'N/A', email: 'N/A' },
+      technologyScope: (device as any).technologyScope || 'biomedical',
       observations: device.observations || '',
     };
 

@@ -32,6 +32,7 @@ import { ObsolescenceEvaluationModal } from '@/components/obsolescence/Obsolesce
 import { FeedbackModal } from '@/components/ui/ConfirmModal';
 
 import { generateMaintenancePDF, generateEquipmentCVPDF } from '@/lib/pdfGenerator';
+import { resolveEquipmentScope } from '@/lib/scopeUtils';
 
 export default function EquipmentLifeCycle() {
   const { id } = useParams();
@@ -303,6 +304,8 @@ export default function EquipmentLifeCycle() {
     );
   }
 
+  const currentScope = resolveEquipmentScope(equipment);
+
   return (
     <div className="max-w-7xl mx-auto space-y-10 pb-20 animate-in fade-in duration-700">
       <div className="flex items-center gap-6 border-b pb-8">
@@ -315,11 +318,11 @@ export default function EquipmentLifeCycle() {
             <Badge className="bg-sky-500 hover:bg-sky-600 rounded-lg uppercase text-[10px] font-black tracking-widest px-2 py-0.5">
               Activo Fijo
             </Badge>
-            {(equipment.technologyScope || 'biomedical') === 'biomedical' ? (
+            {currentScope === 'biomedical' ? (
               <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg uppercase text-[10px] font-black tracking-widest px-2.5 py-0.5">
                 🩺 Biomédica {equipment.riskClass ? `| Clase ${equipment.riskClass}` : ''}
               </Badge>
-            ) : equipment.technologyScope === 'computing' ? (
+            ) : currentScope === 'computing' ? (
               <Badge className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg uppercase text-[10px] font-black tracking-widest px-2.5 py-0.5">
                 💻 TIC {equipment.itCategory ? `| ${equipment.itCategory}` : ''}
               </Badge>
@@ -423,8 +426,12 @@ export default function EquipmentLifeCycle() {
               }
               
               try {
-                console.log('Calling PDF Generator. Final string status:', !!finalPhotoBase64);
-                const equipToExport = { ...equipment, photoThumbnail: finalPhotoBase64 };
+                console.log('Calling PDF Generator. Final string status:', !!finalPhotoBase64, 'Scope:', currentScope);
+                const equipToExport = { 
+                  ...equipment, 
+                  technologyScope: currentScope,
+                  photoThumbnail: finalPhotoBase64 
+                };
                 generateEquipmentCVPDF(equipToExport, reports, transfers);
               } catch (err) {
                 console.error("Critical error generating PDF:", err);
@@ -454,7 +461,7 @@ export default function EquipmentLifeCycle() {
             {equipment.status === 'paused' ? 'Realizar Mantenimiento para Reanudar' : 'Nueva Intervención'}
           </Button>
 
-          {equipment.technologyScope !== 'computing' && (
+          {currentScope !== 'computing' && (
             <Button 
               onClick={() => setShowCalibrationForm(true)}
               className="rounded-xl shadow-md h-11 px-6 bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200 transition-all hover:scale-[1.02]"
@@ -589,7 +596,7 @@ export default function EquipmentLifeCycle() {
             <TabsList className="grid w-full grid-cols-5 bg-slate-100 p-1.5 rounded-2xl h-14">
               <TabsTrigger value="technical" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Técnico</TabsTrigger>
               <TabsTrigger value="regulatory" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">
-                {(equipment.technologyScope || 'biomedical') === 'biomedical' ? 'Normativo' : equipment.technologyScope === 'computing' ? 'Red y TIC' : 'Industrial'}
+                {currentScope === 'biomedical' ? 'Normativo' : currentScope === 'computing' ? 'Red y TIC' : 'Industrial'}
               </TabsTrigger>
               <TabsTrigger value="history" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Mantos.</TabsTrigger>
               <TabsTrigger value="transfers" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Traslados</TabsTrigger>
@@ -601,9 +608,9 @@ export default function EquipmentLifeCycle() {
                 <CardHeader className="bg-slate-50/50 border-b px-8 py-5">
                   <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <Wrench className="h-5 w-5 text-primary" />
-                    {(equipment.technologyScope || 'biomedical') === 'biomedical'
+                    {currentScope === 'biomedical'
                       ? 'Especificaciones Técnicas Biomédicas'
-                      : equipment.technologyScope === 'computing'
+                      : currentScope === 'computing'
                       ? 'Especificaciones y Arquitectura TIC'
                       : 'Especificaciones Operativas Industriales'}
                   </CardTitle>
@@ -615,7 +622,7 @@ export default function EquipmentLifeCycle() {
                   </div>
 
                   {/* CAMPOS BIOMÉDICOS */}
-                  {(equipment.technologyScope || 'biomedical') === 'biomedical' && (
+                  {currentScope === 'biomedical' && (
                     <>
                       <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Clase de Riesgo</p>
@@ -641,7 +648,7 @@ export default function EquipmentLifeCycle() {
                   )}
 
                   {/* CAMPOS TIC / CÓMPUTO */}
-                  {equipment.technologyScope === 'computing' && (
+                  {currentScope === 'computing' && (
                     <>
                       <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría de Activo TIC</p>
@@ -671,7 +678,7 @@ export default function EquipmentLifeCycle() {
                   )}
 
                   {/* CAMPOS INDUSTRIAL / INFRAESTRUCTURA */}
-                  {equipment.technologyScope === 'infrastructure' && (
+                  {currentScope === 'infrastructure' && (
                     <>
                       <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subsistema Industrial</p>
@@ -723,16 +730,16 @@ export default function EquipmentLifeCycle() {
                 <CardHeader className="bg-slate-50/50 border-b px-8 py-5">
                   <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="h-5 w-5 text-primary" />
-                    {(equipment.technologyScope || 'biomedical') === 'biomedical'
+                    {currentScope === 'biomedical'
                       ? 'Información Legal y Sanitaria (INVIMA)'
-                      : equipment.technologyScope === 'computing'
+                      : currentScope === 'computing'
                       ? 'Gestión de Red, Seguridad y Licenciamiento TIC'
                       : 'Seguridad Industrial, RETIE y Conformidad Técnica'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-8 space-y-6">
                   {/* BIOMÉDICA */}
-                  {(equipment.technologyScope || 'biomedical') === 'biomedical' && (
+                  {currentScope === 'biomedical' && (
                     <>
                       <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
                         <div>
@@ -777,7 +784,7 @@ export default function EquipmentLifeCycle() {
                   )}
 
                   {/* TIC */}
-                  {equipment.technologyScope === 'computing' && (
+                  {currentScope === 'computing' && (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
@@ -822,7 +829,7 @@ export default function EquipmentLifeCycle() {
                   )}
 
                   {/* INDUSTRIAL */}
-                  {equipment.technologyScope === 'infrastructure' && (
+                  {currentScope === 'infrastructure' && (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">

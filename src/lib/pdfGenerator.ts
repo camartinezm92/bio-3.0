@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { Equipment, MaintenanceReport, ComplianceSubmission, Transfer } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { resolveEquipmentScope, getEquipmentCVHeaders, getMaintenanceReportHeaders } from '@/lib/scopeUtils';
 
 export const generateEquipmentCVPDF = (equipment: Equipment, reports: MaintenanceReport[] = [], transfers: Transfer[] = [], returnBase64?: boolean) => {
   const doc = new jsPDF();
@@ -18,6 +19,14 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
   const dStyle = { halign: 'center', fontSize: 7, valign: 'middle', textColor: [0, 0, 0] };
 
   // --- 1. HEADER (MEMBRETE) ---
+  const scope = resolveEquipmentScope(equipment);
+  const isBiomedical = scope === 'biomedical';
+  const isComputing = scope === 'computing';
+  const isIndustrial = scope === 'infrastructure';
+  const isOther = scope === 'other';
+
+  const { cvTitle, cvMacro, cvProceso, cvCodigo, cvArchivo } = getEquipmentCVHeaders(scope);
+
   autoTable(doc, {
     startY: margin,
     margin: { left: margin, right: margin },
@@ -36,16 +45,16 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
         { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } }
       ],
       [
-        { content: 'FORMATO HOJA DE VIDA DE DISPOSITIVOS MÉDICOS', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
+        { content: cvTitle, colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
       ],
       [
-        { content: 'Macroproceso: Gestión de tecnología', styles: { fontStyle: 'bold' } },
-        { content: 'Proceso: Gestión de Tecnología', colSpan: 2, styles: { fontStyle: 'bold' } }
+        { content: cvMacro, styles: { fontStyle: 'bold' } },
+        { content: cvProceso, colSpan: 2, styles: { fontStyle: 'bold' } }
       ],
       [
         { content: 'Responsable: Líder de proceso', styles: { fontStyle: 'bold' } },
         { content: `Fecha de emisión: 2024-01-15`, styles: { fontStyle: 'bold' } },
-        { content: 'Código: GTE-FOR-023', styles: { fontStyle: 'bold' } }
+        { content: cvCodigo, styles: { fontStyle: 'bold' } }
       ],
       [
         { content: 'Revisó: Comité de Calidad', styles: { fontStyle: 'bold' } },
@@ -54,7 +63,7 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
       ],
       [
         { content: 'Aprobó: Gerente de la institución', styles: { fontStyle: 'bold' } },
-        { content: 'Archivo: Archivo de Gestión de la Tecnología', styles: { fontStyle: 'bold' } },
+        { content: cvArchivo, styles: { fontStyle: 'bold' } },
         { content: 'Página 1 de 1', styles: { fontStyle: 'bold' } }
       ]
     ],
@@ -70,10 +79,6 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
   let currentY = (doc as any).lastAutoTable.finalY + 0.1;
 
   // --- 2. IDENTIFICACIÓN DEL EQUIPO ---
-  const scope = equipment.technologyScope || 'biomedical';
-  const isBiomedical = scope === 'biomedical';
-  const isComputing = scope === 'computing';
-  const isIndustrial = scope === 'infrastructure';
 
   let regLabel = 'REG. SANITARIO';
   let regValue = c(equipment.registrationInvima);
@@ -217,20 +222,81 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
   const typeMovil = equipment.equipmentType === 'Móvil';
   const tm = equipment.predominantTechnology;
 
-  autoTable(doc, {
-    startY: currentY,
-    margin: { left: margin, right: margin },
-    tableWidth: contentWidth,
-    theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0,0,0] },
-    columnStyles: {
-      0: { cellWidth: 35, ...(hStyle as any) },
-      1: { cellWidth: 40, halign: 'center', valign: 'middle' },
-      2: { cellWidth: 40, halign: 'center', valign: 'middle' },
-      3: { cellWidth: 45, ...(hStyle as any) },
-      4: { cellWidth: 30, halign: 'center', valign: 'middle' }
-    },
-    body: [
+  let equipDescBody: any[] = [];
+  let equipDescColStyles: any = {
+    0: { cellWidth: 35, ...(hStyle as any) },
+    1: { cellWidth: 40, halign: 'center', valign: 'middle' },
+    2: { cellWidth: 40, halign: 'center', valign: 'middle' },
+    3: { cellWidth: 45, ...(hStyle as any) },
+    4: { cellWidth: 30, halign: 'center', valign: 'middle' }
+  };
+
+  if (isComputing) {
+    equipDescBody = [
+      [
+        { content: 'DESCRIPCIÓN DEL EQUIPO Y ESPECIFICACIONES TIC', colSpan: 5, styles: sectionHeaderStyle as any }
+      ],
+      [
+        'TIPO / CATEGORÍA TIC', 
+        c(equipment.itCategory || equipment.equipmentType || 'Estación de Trabajo / PC'), 
+        'SISTEMA OPERATIVO', 
+        c(equipment.operatingSystem || 'Windows / Linux'), 
+        'FRECUENCIA DE MANTENIMIENTO: ' + `${c(equipment.maintenanceFrequency)} MESES`
+      ],
+      [
+        { content: 'ARQUITECTURA\nY HARDWARE', rowSpan: 3, styles: hStyle as any },
+        `PROCESADOR: ${c(equipment.processor || 'N/A')}`,
+        `MEMORIA RAM: ${c(equipment.ramMemory || 'N/A')}`,
+        'CALIBRACIÓN',
+        'NO APLICA (ACTIVO TIC)'
+      ],
+      [
+        `DISCO: ${c(equipment.storageCapacity || 'N/A')}`,
+        `CONEXIÓN: ${c(equipment.networkConnection || 'LAN Cableada')}`,
+        'DIMENSIONES',
+        c(equipment.dimensions)
+      ],
+      [
+        `ANTIVIRUS: ${c(equipment.antivirusSoftware || 'Protegido')}`,
+        `LICENCIA: ${c(equipment.licenseStatus || 'Activa')}`,
+        'FUENTE DE ALIMENTACIÓN',
+        c(equipment.powerSupply?.toUpperCase() || 'AC 110V / UPS')
+      ]
+    ];
+  } else if (isIndustrial) {
+    equipDescBody = [
+      [
+        { content: 'DESCRIPCIÓN DEL EQUIPO INDUSTRIAL Y PARÁMETROS OPERATIVOS', colSpan: 5, styles: sectionHeaderStyle as any }
+      ],
+      [
+        'TIPO DE EQUIPO', 
+        `FIJO/CENTRAL [ ${chk(typeFijo || !typeMovil)} ]`, 
+        `MÓVIL/AUTÓNOMO [ ${chk(typeMovil)} ]`, 
+        'FRECUENCIA DE MANTENIMIENTO', 
+        `${c(equipment.maintenanceFrequency)} MESES`
+      ],
+      [
+        { content: 'SUBSISTEMA\nINDUSTRIAL', rowSpan: 3, styles: hStyle as any },
+        `SUBSISTEMA: ${c(equipment.industrialSystem || 'Generación y Respaldo')}`,
+        `CRITICIDAD: ${c(equipment.industrialCriticality || 'Alta Operativa')}`,
+        'INSPECCIÓN TÉCNICA / RETIE',
+        equipment.calibrationFrequency ? `${c(equipment.calibrationFrequency)} MESES` : 'ANUAL / NORMATIVA'
+      ],
+      [
+        `POTENCIA: ${c(equipment.capacityPower || 'N/A')}`,
+        `TENSIÓN: ${c(equipment.operatingVoltage || 'N/A')}`,
+        'DIMENSIONES',
+        c(equipment.dimensions)
+      ],
+      [
+        `FLUIDO/COMBUSTIBLE: ${c(equipment.fuelOrFluids || 'N/A')}`,
+        `NORMA: ${c(equipment.technicalNorm || 'RETIE / NFPA')}`,
+        'FUENTE DE ALIMENTACIÓN',
+        c(equipment.powerSupply?.toUpperCase() || 'RED ELÉCTRICA / DIESEL')
+      ]
+    ];
+  } else {
+    equipDescBody = [
       [
         { content: 'DESCRIPCIÓN DEL EQUIPO', colSpan: 5, styles: sectionHeaderStyle as any }
       ],
@@ -260,7 +326,17 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
         'FUENTE DE ALIMENTACIÓN',
         c(equipment.powerSupply?.toUpperCase())
       ]
-    ]
+    ];
+  }
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0,0,0] },
+    columnStyles: equipDescColStyles,
+    body: equipDescBody
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 0.1;
@@ -518,6 +594,13 @@ export const generateMaintenancePDF = (report: MaintenanceReport, returnBase64?:
     doc.text('UCI HONDA', margin + 15, margin + 15, { align: 'center' });
   }
 
+  const repScope = resolveEquipmentScope({
+    technologyScope: report.technologyScope,
+    name: report.equipmentName,
+    registrationInvima: report.registrationInvima
+  });
+  const { reportTitle, macroproceso, proceso, codigo } = getMaintenanceReportHeaders(repScope);
+
   // --- HEADER TABLE (Simplified) ---
   autoTable(doc, {
     startY: margin,
@@ -530,16 +613,16 @@ export const generateMaintenancePDF = (report: MaintenanceReport, returnBase64?:
         { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } }
       ],
       [
-        { content: 'FORMATO REPORTE TÉCNICO MANTENIMIENTO DE DISPOSITIVOS MÉDICOS', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
+        { content: reportTitle, colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
       ],
       [
-        { content: 'Macroproceso: Gestión de tecnología', styles: { cellWidth: (contentWidth - 35) / 2 } },
-        { content: 'Proceso: Gestión de Tecnología', styles: { cellWidth: (contentWidth - 35) / 2 } }
+        { content: macroproceso, styles: { cellWidth: (contentWidth - 35) / 2 } },
+        { content: proceso, styles: { cellWidth: (contentWidth - 35) / 2 } }
       ],
       [
         { content: 'Responsable: Líder de proceso' },
         { content: 'Fecha de emisión: 2017-08-30' },
-        { content: 'Código: GTE-FOR-015-V3' } // Code can be here too
+        { content: codigo }
       ],
       [
         { content: 'Revisó: Comité de Calidad' },
@@ -548,7 +631,7 @@ export const generateMaintenancePDF = (report: MaintenanceReport, returnBase64?:
       ],
       [
         { content: 'Aprobó: Gerente de la institución' },
-        { content: 'Archivo: Gestión Tecnología Biomédica' },
+        { content: repScope === 'computing' ? 'Archivo: Gestión de Infraestructura y Redes TIC' : repScope === 'infrastructure' ? 'Archivo: Gestión de Mantenimiento e Infraestructura' : 'Archivo: Gestión Tecnología Biomédica' },
         { content: 'Página 1 de 1' }
       ]
     ]
@@ -628,8 +711,14 @@ export const generateMaintenancePDF = (report: MaintenanceReport, returnBase64?:
     styles: { fontSize: 8, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.2 },
     body: [
       [
-        { content: 'INVIMA', styles: { fillColor: [240, 240, 240], fontStyle: 'bold', cellWidth: labelWidth } },
-        { content: report.registrationInvima || 'N/A', styles: { cellWidth: valueWidth } },
+        { 
+          content: repScope === 'computing' ? 'RED / SISTEMA' : repScope === 'infrastructure' ? 'NORMA / SISTEMA' : 'INVIMA', 
+          styles: { fillColor: [240, 240, 240], fontStyle: 'bold', cellWidth: labelWidth } 
+        },
+        { 
+          content: repScope === 'computing' ? (report.technologyName || 'TIC / Cómputo') : repScope === 'infrastructure' ? (report.technologyName || 'Infraestructura') : (report.registrationInvima || 'N/A'), 
+          styles: { cellWidth: valueWidth } 
+        },
         { content: 'MODO', styles: { fillColor: [240, 240, 240], fontStyle: 'bold', cellWidth: labelWidth } },
         { content: `MÓVIL  [ ${report.mode === 'mobile' ? 'X' : ' '} ]      FIJO  [ ${report.mode === 'fixed' ? 'X' : ' '} ]`, styles: { cellWidth: valueWidth, halign: 'center' } }
       ],
