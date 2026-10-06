@@ -148,7 +148,14 @@ function AppRoutes() {
         <Route path="/minor-devices" element={<MinorDevices />} />
         <Route path="/obsolescence" element={<ObsolescenceMatrix />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/users" element={user?.role?.toUpperCase() === 'ADMIN' ? <UserManagement /> : <Navigate to="/" />} />
+        <Route 
+          path="/users" 
+          element={
+            user?.email?.toLowerCase() === 'ingbiomedico@ucihonda.com.co' 
+              ? <UserManagement /> 
+              : <Navigate to="/" replace />
+          } 
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" />} />

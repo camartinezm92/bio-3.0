@@ -56,7 +56,9 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     );
   };
 
+  const SUPER_ADMIN_EMAIL = 'ingbiomedico@ucihonda.com.co';
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
+  const isSuperAdmin = user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
   const menuItems: any[] = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/', sectionId: 'dashboard' },
@@ -84,7 +86,7 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
   });
 
   React.useEffect(() => {
-    if (!isAdmin) return;
+    if (!isSuperAdmin) return;
 
     const q = query(collection(db, 'users'), where('status', '==', 'pending'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -94,9 +96,10 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     });
 
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isSuperAdmin]);
 
-  if (isAdmin) {
+  // Únicamente ingbiomedico@ucihonda.com.co puede visualizar la opción de gestión de usuarios en el menú
+  if (isSuperAdmin) {
     filteredMenuItems.splice(filteredMenuItems.length - 1, 0, { 
       icon: UserCog, 
       label: 'Gestión Usuarios', 

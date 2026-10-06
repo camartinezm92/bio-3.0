@@ -68,19 +68,30 @@ const SECTIONS = [
   { id: 'compliance', name: 'Cumplimiento / Normativa' },
   { id: 'alerts', name: 'Sistema de Alertas' },
   { id: 'providers', name: 'Directorio de Proveedores' },
-  { id: 'schedule', name: 'Cronograma Mantenimiento' },
-  { id: 'users', name: 'Gestión de Usuarios' }
+  { id: 'schedule', name: 'Cronograma Mantenimiento' }
 ];
+
+const SUPER_ADMIN_EMAIL = 'ingbiomedico@ucihonda.com.co';
 
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+
   const [users, setUsers] = React.useState<User[]>([]);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [selectedUser, setSelectedUser] = React.useState<User | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
-  const navigate = useNavigate();
 
   React.useEffect(() => {
+    if (!isSuperAdmin) {
+      navigate('/', { replace: true });
+    }
+  }, [isSuperAdmin, navigate]);
+
+  React.useEffect(() => {
+    if (!isSuperAdmin) return;
+
     const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -92,7 +103,11 @@ export default function UserManagement() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isSuperAdmin]);
+
+  if (!isSuperAdmin) {
+    return null;
+  }
 
   const pendingUsers = users.filter(u => u.status === 'pending');
   const activeUsers = users.filter(u => u.status !== 'pending' && u.email?.toLowerCase().includes(searchTerm.toLowerCase()));
