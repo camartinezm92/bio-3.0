@@ -148,7 +148,8 @@ service cloud.firestore {
 
     match /providers/{providerId} {
       allow read: if isActive();
-      allow write: if isAdmin();
+      allow create, update: if isActive();
+      allow delete: if isAdmin();
     }
 
     match /equipment/{equipmentId} {
@@ -178,7 +179,7 @@ service cloud.firestore {
 
     match /guides/{guideId} {
       allow read: if isActive();
-      allow create, update: if isAdmin();
+      allow create, update: if isActive();
       allow delete: if isAdmin();
     }
 

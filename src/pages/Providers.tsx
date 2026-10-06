@@ -21,8 +21,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { collection, onSnapshot, addDoc, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Provider } from '@/types';
+import { Provider, TechnologyScope } from '@/types';
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope, SCOPES_CONFIG } from '@/lib/TechnologyScopeContext';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -30,9 +31,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Providers() {
   const { user } = useAuth();
+  const { scope, scopeConfig } = useTechnologyScope();
   const [loading, setLoading] = React.useState(true);
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -48,7 +57,8 @@ export default function Providers() {
     email: '',
     address: '',
     city: '',
-    specialties: []
+    specialties: [],
+    technologyScope: scope === 'all' ? 'biomedical' : scope
   });
   const [specialtyInput, setSpecialtyInput] = React.useState('');
 
@@ -66,10 +76,11 @@ export default function Providers() {
         email: '',
         address: '',
         city: '',
-        specialties: []
+        specialties: [],
+        technologyScope: scope === 'all' ? 'biomedical' : scope
       });
     }
-  }, [editingProvider, showAddModal]);
+  }, [editingProvider, showAddModal, scope]);
 
   React.useEffect(() => {
     const q = query(collection(db, 'providers'), orderBy('name', 'asc'));
@@ -88,14 +99,19 @@ export default function Providers() {
     if (!newProvider.name || !newProvider.email) return;
 
     try {
+      const providerPayload = {
+        ...newProvider,
+        technologyScope: newProvider.technologyScope || (scope === 'all' ? 'biomedical' : scope)
+      };
+
       if (editingProvider) {
         await updateDoc(doc(db, 'providers', editingProvider.id), {
-          ...newProvider,
+          ...providerPayload,
           updatedAt: new Date().toISOString()
         });
       } else {
         await addDoc(collection(db, 'providers'), {
-          ...newProvider,
+          ...providerPayload,
           createdAt: new Date().toISOString(),
         });
       }
@@ -146,7 +162,16 @@ export default function Providers() {
     window.open(url, '_blank');
   };
 
-  const filteredProviders = providers.filter(p => 
+  // Scoped Providers based on active technology area
+  const scopedProviders = React.useMemo(() => {
+    if (scope === 'all') return providers;
+    return providers.filter(p => {
+      const pScope = p.technologyScope || 'biomedical';
+      return pScope === scope || pScope === 'all';
+    });
+  }, [providers, scope]);
+
+  const filteredProviders = scopedProviders.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.specialties.some(s => s.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -162,11 +187,18 @@ export default function Providers() {
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex items-end justify-between border-b pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b pb-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">Directorio de Proveedores</h1>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">
+            Directorio de Proveedores - <span className="text-primary">{scopeConfig.label}</span>
+          </h1>
           <p className="text-sm text-slate-500 font-bold mt-1">
-            Gestión de servicios técnicos, comerciales y soporte externo.
+            Gestión de servicios técnicos, contratos, comerciales y soporte para {scopeConfig.shortLabel.toLowerCase()}.
           </p>
         </div>
         {isAdmin && (
@@ -192,8 +224,12 @@ export default function Providers() {
           <div className="bg-slate-200/50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
             <User className="h-10 w-10 text-slate-400" />
           </div>
-          <h3 className="text-xl font-black text-slate-900">No se encontraron proveedores</h3>
-          <p className="text-slate-500 font-medium mt-1">Intenta con otro término de búsqueda.</p>
+          <h3 className="text-xl font-black text-slate-900">No se encontraron proveedores para {scopeConfig.shortLabel}</h3>
+          <p className="text-slate-500 font-medium mt-1">
+            {isAdmin 
+              ? 'Puedes registrar un nuevo proveedor técnico haciendo clic en "Nuevo Proveedor".'
+              : 'No hay proveedores registrados en esta área tecnológica.'}
+          </p>
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -206,7 +242,19 @@ export default function Providers() {
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
-                    <CardTitle className="text-xl font-black text-slate-900 leading-tight">{provider.name}</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-xl font-black text-slate-900 leading-tight">{provider.name}</CardTitle>
+                      {provider.technologyScope && (
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border",
+                          SCOPES_CONFIG[provider.technologyScope]?.badgeBg || 'bg-slate-100',
+                          SCOPES_CONFIG[provider.technologyScope]?.badgeBorder || 'border-slate-200',
+                          SCOPES_CONFIG[provider.technologyScope]?.textColor || 'text-slate-700'
+                        )}>
+                          {SCOPES_CONFIG[provider.technologyScope]?.shortLabel || provider.technologyScope}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-1 mt-2">
                       {provider.specialties?.map(s => (
                         <Badge key={s} variant="secondary" className="text-[9px] font-black uppercase rounded-lg border-slate-100 bg-slate-50 text-slate-500">{s}</Badge>
@@ -343,6 +391,23 @@ export default function Providers() {
           </DialogHeader>
           
           <div className="grid grid-cols-2 gap-6 py-6">
+            <div className="col-span-2 space-y-2">
+              <Label className="font-black text-slate-700 text-sm">Área Tecnológica del Proveedor</Label>
+              <Select 
+                value={newProvider.technologyScope || (scope === 'all' ? 'biomedical' : scope)} 
+                onValueChange={(val: any) => setNewProvider(prev => ({ ...prev, technologyScope: val }))}
+              >
+                <SelectTrigger className="h-12 rounded-2xl border-slate-200">
+                  <SelectValue placeholder="Seleccione el área tecnológica" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  <SelectItem value="biomedical">Tecnología Biomédica (Equipos Médicos y Clínicos)</SelectItem>
+                  <SelectItem value="computing">Tecnología de Cómputo (TIC, Redes y Sistemas)</SelectItem>
+                  <SelectItem value="infrastructure">Infraestructura y Otras Tecnologías (HVAC, Gases, Eléctrico)</SelectItem>
+                  <SelectItem value="all">Transversal Institucional (Aplica a Todas las Áreas)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="name" className="font-black text-slate-700 text-sm">Nombre de la Empresa / Marca</Label>
               <Input 

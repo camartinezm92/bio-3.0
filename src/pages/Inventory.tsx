@@ -31,7 +31,9 @@ import {
   CheckCircle2,
   Database,
   ArrowLeftRight,
-  FileUp
+  FileUp,
+  FileText,
+  ExternalLink
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { 
@@ -63,20 +65,26 @@ import { collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc, serverTimest
 import { db } from '@/lib/firebase';
 import { Equipment } from '@/types';
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { FeedbackModal } from '@/components/ui/ConfirmModal';
 
 export default function Inventory() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
   const [searchTerm, setSearchTerm] = React.useState('');
   const [equipmentList, setEquipmentList] = React.useState<Equipment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showForm, setShowForm] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
   const [editingEquipment, setEditingEquipment] = React.useState<Equipment | undefined>(undefined);
   const [equipmentToDelete, setEquipmentToDelete] = React.useState<Equipment | null>(null);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [statusToChange, setStatusToChange] = React.useState<Equipment | null>(null);
   const [newStatus, setNewStatus] = React.useState<string>('');
   const [decommFile, setDecommFile] = React.useState<File | null>(null);
+  const [decommReason, setDecommReason] = React.useState<string>('');
+  const [decommDate, setDecommDate] = React.useState<string>('');
   const [updatingStatus, setUpdatingStatus] = React.useState(false);
   const [sortConfig, setSortConfig] = React.useState<{ key: keyof Equipment | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
   const [statusFilter, setStatusFilter] = React.useState<'all' | 'active' | 'out_of_service' | 'maintenance' | 'calibration'>('all');
@@ -131,7 +139,11 @@ export default function Inventory() {
       });
     } catch (error: any) {
       console.error('Error toggling pause:', error);
-      alert(`Error al cambiar estado: ${error.message || 'Permisos insuficientes'}`);
+      setFeedback({
+        title: 'Error al Cambiar Estado',
+        message: error.message || 'Permisos insuficientes para modificar el estado del equipo.',
+        type: 'error'
+      });
     }
   };
 
@@ -140,25 +152,39 @@ export default function Inventory() {
     
     setIsDeleting(true);
     try {
+      const eqName = equipmentToDelete.name;
       await deleteDoc(doc(db, 'equipment', equipmentToDelete.id));
       setEquipmentToDelete(null);
+      setFeedback({
+        title: 'Equipo Eliminado',
+        message: `El registro de "${eqName}" fue eliminado correctamente del inventario.`,
+        type: 'success'
+      });
     } catch (error: any) {
       console.error('Error deleting equipment:', error);
-      alert(`Error al eliminar: ${error.message || 'Permisos insuficientes'}`);
+      setFeedback({
+        title: 'Error al Eliminar',
+        message: error.message || 'No fue posible eliminar el registro. Verifique sus permisos.',
+        type: 'error'
+      });
     } finally {
       setIsDeleting(false);
     }
   };
 
+  const scopedEquipmentList = React.useMemo(() => {
+    return filterByScope(equipmentList);
+  }, [equipmentList, filterByScope]);
+
   const stats = React.useMemo(() => {
-    const total = equipmentList.length;
-    const operational = equipmentList.filter(eq => eq.status === 'active').length;
-    const outOfService = equipmentList.filter(eq => eq.status === 'out_of_service').length;
+    const total = scopedEquipmentList.length;
+    const operational = scopedEquipmentList.filter(eq => eq.status === 'active').length;
+    const outOfService = scopedEquipmentList.filter(eq => eq.status === 'out_of_service').length;
     
     // Proximos mantenimientos (prox 15 dias)
     const fifteenDaysFromNow = new Date();
     fifteenDaysFromNow.setDate(fifteenDaysFromNow.getDate() + 15);
-    const pendingManto = equipmentList.filter(eq => {
+    const pendingManto = scopedEquipmentList.filter(eq => {
       if (!eq.nextMaintenance) return false;
       const mantoDate = new Date(eq.nextMaintenance);
       return mantoDate <= fifteenDaysFromNow && eq.status !== 'out_of_service';
@@ -167,20 +193,20 @@ export default function Inventory() {
     // Próximas Calibraciones (prox 30 dias)
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-    const pendingCalib = equipmentList.filter(eq => {
+    const pendingCalib = scopedEquipmentList.filter(eq => {
       if (!eq.nextCalibration) return false;
       const calibDate = new Date(eq.nextCalibration);
       return calibDate <= thirtyDaysFromNow && eq.status !== 'out_of_service';
     }).length;
 
     // Resumen por tipos de equipo para los botones de filtro
-    const types = Array.from(new Set(equipmentList.map(eq => eq.name))).sort();
+    const types = Array.from(new Set(scopedEquipmentList.map(eq => eq.name))).sort();
 
     return { total, operational, outOfService, pendingManto, pendingCalib, types };
-  }, [equipmentList]);
+  }, [scopedEquipmentList]);
 
   const filteredEquipment = React.useMemo(() => {
-    let result = equipmentList.filter(eq => 
+    let result = scopedEquipmentList.filter(eq => 
       eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       eq.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
       eq.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -255,42 +281,85 @@ export default function Inventory() {
     
     setUpdatingStatus(true);
     try {
-      let decommUrl = statusToChange.decommissioningActUrl || '';
+      let decommUrl: string = statusToChange.decommissioningActUrl || '';
+      const isDecommission = newStatus === 'baja' || newStatus === 'baja_repuestos';
       
-      if (newStatus === 'baja' && decommFile) {
+      if (isDecommission && decommFile) {
         // Upload to Drive via proxy
         const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error("Error leyendo el archivo del acta."));
+            }
+          };
+          reader.onerror = () => reject(new Error("Error al procesar el archivo."));
           reader.readAsDataURL(decommFile);
         });
         
-        const uploadRes = await fetch('/api/drive/upload-document', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({
-             equipmentId: statusToChange.id,
-             name: `Acta_Baja_${statusToChange.assetNumber}.pdf`,
-             base64,
-             mimeType: decommFile.type || 'application/pdf',
-             folderId: statusToChange.driveFolderId
-           })
-        });
-        
-        if (uploadRes.ok) {
-          const driveData = await uploadRes.json();
-          decommUrl = driveData.url;
+        const cleanFileName = `Acta_Baja_${(statusToChange.assetNumber || statusToChange.serial || statusToChange.id || 'Equipo').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+
+        try {
+          const uploadRes = await fetch('/api/drive/upload-document', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               equipmentDirId: statusToChange.driveFolderId || '',
+               equipmentSerial: statusToChange.serial || '',
+               equipmentName: statusToChange.name || '',
+               technologyScope: statusToChange.technologyScope || 'biomedical',
+               folderType: 'decommissioning',
+               fileName: cleanFileName,
+               base64,
+               mimeType: decommFile.type || 'application/pdf',
+             })
+          });
+          
+          if (uploadRes.ok) {
+            const driveData = await uploadRes.json();
+            decommUrl = driveData.url || driveData.webViewLink || '';
+          } else {
+            const errData = await uploadRes.json().catch(() => ({}));
+            console.warn("Drive upload returned non-ok status, using fallback:", errData);
+            if (base64 && base64.length < 900000) {
+              decommUrl = base64;
+            }
+          }
+        } catch (uploadError) {
+          console.warn("Network error during file upload, using fallback:", uploadError);
+          if (base64 && base64.length < 900000) {
+            decommUrl = base64;
+          }
         }
       }
 
-      await updateDoc(doc(db, 'equipment', statusToChange.id), {
+      // Safeguard against undefined in Firestore payload
+      const updatePayload: Record<string, any> = {
         status: newStatus,
         updatedAt: serverTimestamp(),
-        ...(newStatus === 'baja' ? { 
-          decommissioningActUrl: decommUrl,
-          decommissioningDate: new Date().toISOString().split('T')[0]
-        } : {})
+      };
+
+      if (isDecommission) {
+        // Guarantee decommissioningActUrl is always a string and never undefined
+        const finalDecommUrl = typeof decommUrl === 'string' && decommUrl ? decommUrl : (statusToChange.decommissioningActUrl || '');
+        updatePayload.decommissioningActUrl = finalDecommUrl;
+        updatePayload.decommissioningDate = decommDate || statusToChange.decommissioningDate || new Date().toISOString().split('T')[0];
+        if (decommReason || statusToChange.decommissioningReason) {
+          updatePayload.decommissioningReason = decommReason || statusToChange.decommissioningReason || '';
+        }
+      }
+
+      // Strip any accidental undefined fields to strictly prevent Firestore errors
+      const cleanPayload: Record<string, any> = {};
+      Object.keys(updatePayload).forEach(key => {
+        if (updatePayload[key] !== undefined) {
+          cleanPayload[key] = updatePayload[key];
+        }
       });
+
+      await updateDoc(doc(db, 'equipment', statusToChange.id), cleanPayload);
 
       // Add to history
       await addDoc(collection(db, 'reports'), {
@@ -300,17 +369,31 @@ export default function Inventory() {
         status: 'completed',
         date: new Date().toISOString().split('T')[0],
         description: `Cambio de estado manual a: ${newStatus.toUpperCase()}.`,
-        workPerformed: newStatus === 'baja' ? 'Equipo dado de baja institucional.' : `Equipo movido a estado ${newStatus}.`,
+        workPerformed: isDecommission 
+          ? `Equipo dado de baja institucional (${newStatus === 'baja' ? 'Baja Definitiva' : 'Baja para Repuestos'}).${decommReason ? ' Motivo: ' + decommReason + '.' : ''}${decommUrl ? ' Acta de baja registrada y archivada.' : ''}` 
+          : `Equipo movido a estado ${newStatus}.`,
         technicianId: user?.uid || 'system',
         createdAt: serverTimestamp()
+      });
+
+      setFeedback({
+        title: 'Estado Actualizado',
+        message: `El estado del equipo ${statusToChange.name} (${statusToChange.serial}) se actualizó a ${newStatus.toUpperCase()}${isDecommission && decommUrl ? ' y se adjuntó el acta de baja exitosamente.' : '.'}`,
+        type: 'success'
       });
 
       setStatusToChange(null);
       setNewStatus('');
       setDecommFile(null);
+      setDecommReason('');
+      setDecommDate('');
     } catch (error: any) {
       console.error('Error updating status:', error);
-      alert('Error: ' + error.message);
+      setFeedback({
+        title: 'Error al Actualizar Estado',
+        message: error.message || 'No se pudo actualizar el estado del equipo.',
+        type: 'error'
+      });
     } finally {
       setUpdatingStatus(false);
     }
@@ -344,12 +427,19 @@ export default function Inventory() {
     <div className="space-y-10 animate-in fade-in duration-700">
       {/* Header section with Stats */}
       <div className="space-y-6">
-        <div className="flex items-end justify-between border-b pb-6">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b pb-6">
           <div>
-            <h1 className="text-4xl font-black tracking-tight text-slate-900">Inventario <span className="text-primary">Biomédico</span></h1>
-            <p className="text-slate-500 mt-1 font-medium italic">Gestión centralizada de activos de la institución.</p>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+                {scopeConfig.shortLabel}
+              </span>
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+              Inventario <span className="text-primary">{scopeConfig.label}</span>
+            </h1>
+            <p className="text-slate-500 mt-1 font-medium">{scopeConfig.description}</p>
           </div>
-          <Button onClick={() => setShowForm(true)} className="rounded-xl px-6 font-bold shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95">
+          <Button onClick={() => setShowForm(true)} className="rounded-xl px-6 font-bold shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 shrink-0">
             <Plus className="mr-2 h-5 w-5" /> Registrar Equipo
           </Button>
         </div>
@@ -618,12 +708,24 @@ export default function Inventory() {
               {filteredEquipment.map((eq) => (
                 <TableRow key={eq.id} className="border-slate-50 hover:bg-slate-50/30 transition-colors">
                   <TableCell className="px-6 py-5">
-                    <button 
-                      onClick={() => navigate(`/equipment/${eq.id}`)}
-                      className="font-bold text-slate-900 hover:text-primary transition-colors text-left"
-                    >
-                      {eq.name}
-                    </button>
+                    <div className="space-y-1">
+                      <button 
+                        onClick={() => navigate(`/equipment/${eq.id}`)}
+                        className="font-bold text-slate-900 hover:text-primary transition-colors text-left block"
+                      >
+                        {eq.name}
+                      </button>
+                      {scope === 'all' && (
+                        <span className={cn(
+                          "inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border",
+                          (eq.technologyScope || 'biomedical') === 'biomedical' && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                          eq.technologyScope === 'computing' && "bg-indigo-50 text-indigo-700 border-indigo-200",
+                          eq.technologyScope === 'infrastructure' && "bg-amber-50 text-amber-800 border-amber-200"
+                        )}>
+                          {(eq.technologyScope || 'biomedical') === 'biomedical' ? '🩺 Biomédica' : eq.technologyScope === 'computing' ? '💻 Cómputo' : '⚡ Infraestructura'}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="px-6 py-5 text-slate-600 font-medium">{eq.brand}</TableCell>
                   <TableCell className="px-6 py-5 text-slate-600 font-medium">{eq.model}</TableCell>
@@ -676,6 +778,19 @@ export default function Inventory() {
                          eq.status === 'baja' ? 'Baja' :
                          'Fuera de Serv.'}
                       </Badge>
+                      {eq.decommissioningActUrl && (
+                        <div className="mt-1.5">
+                          <a
+                            href={eq.decommissioningActUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <FileText className="h-3 w-3 shrink-0" /> Acta de Baja
+                          </a>
+                        </div>
+                      )}
                   </TableCell>
                   <TableCell className="px-6 py-5">
                     <div className="flex items-center gap-2 text-slate-600 font-bold">
@@ -698,9 +813,20 @@ export default function Inventory() {
                         <DropdownMenuItem onClick={() => { setEditingEquipment(eq); setShowForm(true); }} className="rounded-lg py-2.5 cursor-pointer">
                           <FileEdit className="mr-3 h-4 w-4 text-slate-400" /> Editar Datos
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setStatusToChange(eq); setNewStatus(eq.status); }} className="rounded-lg py-2.5 cursor-pointer">
+                        <DropdownMenuItem onClick={() => { 
+                          setStatusToChange(eq); 
+                          setNewStatus(eq.status);
+                          setDecommReason(eq.decommissioningReason || '');
+                          setDecommDate(eq.decommissioningDate || new Date().toISOString().split('T')[0]);
+                          setDecommFile(null);
+                        }} className="rounded-lg py-2.5 cursor-pointer">
                           <ArrowLeftRight className="mr-3 h-4 w-4 text-primary" /> Cambiar Estado
                         </DropdownMenuItem>
+                        {eq.decommissioningActUrl && (
+                          <DropdownMenuItem onClick={() => window.open(eq.decommissioningActUrl, '_blank')} className="rounded-lg py-2.5 cursor-pointer text-rose-600">
+                            <FileText className="mr-3 h-4 w-4 text-rose-600" /> Ver Acta de Baja
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => handleDuplicate(eq)} className="rounded-lg py-2.5 cursor-pointer">
                           <Copy className="mr-3 h-4 w-4 text-slate-400" /> Duplicar Equipo
                         </DropdownMenuItem>
@@ -803,14 +929,35 @@ export default function Inventory() {
               </Select>
             </div>
 
-            {newStatus === 'baja' && (
+            {(newStatus === 'baja' || newStatus === 'baja_repuestos') && (
               <div className="space-y-3 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in slide-in-from-top-2">
                 <Label className="font-black text-rose-700 text-xs uppercase tracking-widest flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" /> Acta de Baja Requerida
                 </Label>
                 <p className="text-xs text-rose-600 font-medium leading-relaxed">
-                  Para dar de baja un equipo debe adjuntar el acta o documento técnico que soporte la desvinculación.
+                  Para registrar el equipo como {newStatus === 'baja' ? 'Baja Definitiva' : 'Baja para Repuestos'}, adjunte el acta o concepto técnico correspondiente.
                 </p>
+
+                {statusToChange?.decommissioningActUrl && (
+                  <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-rose-200">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <FileText className="h-4 w-4 text-rose-600 shrink-0" />
+                      <div className="truncate">
+                        <p className="text-xs font-bold text-slate-800 truncate">Acta de Baja Registrada</p>
+                        <p className="text-[10px] text-slate-500 font-medium">Documento actualmente vinculado al equipo</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 h-8 shrink-0"
+                      onClick={() => window.open(statusToChange.decommissioningActUrl, '_blank')}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 mr-1" /> Ver
+                    </Button>
+                  </div>
+                )}
                 
                 <div 
                   className={cn(
@@ -823,11 +970,15 @@ export default function Inventory() {
                     <>
                       <CheckCircle2 className="h-6 w-6 text-emerald-500" />
                       <p className="text-xs font-bold text-emerald-700">{decommFile.name}</p>
+                      <p className="text-[10px] text-emerald-600 font-medium">Clic para cambiar archivo</p>
                     </>
                   ) : (
                     <>
                       <FileUp className="h-6 w-6 text-rose-400" />
-                      <p className="text-xs font-bold text-rose-700">Subir Acta (PDF/Imagen)</p>
+                      <p className="text-xs font-bold text-rose-700">
+                        {statusToChange?.decommissioningActUrl ? 'Reemplazar Acta (PDF/Imagen)' : 'Subir Acta (PDF/Imagen)'}
+                      </p>
+                      <p className="text-[10px] text-rose-500 font-medium">Haga clic para seleccionar archivo</p>
                     </>
                   )}
                   <input 
@@ -837,6 +988,27 @@ export default function Inventory() {
                     accept=".pdf,image/*" 
                     onChange={(e) => setDecommFile(e.target.files?.[0] || null)}
                   />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold text-slate-700">Fecha de Baja</Label>
+                    <Input
+                      type="date"
+                      value={decommDate}
+                      onChange={(e) => setDecommDate(e.target.value)}
+                      className="rounded-xl text-xs h-9 bg-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold text-slate-700">Motivo de Baja</Label>
+                    <Input
+                      value={decommReason}
+                      onChange={(e) => setDecommReason(e.target.value)}
+                      placeholder="Ej: Obsolescencia, daño total..."
+                      className="rounded-xl text-xs h-9 bg-white"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -853,7 +1025,7 @@ export default function Inventory() {
               <Button 
                 className="rounded-xl font-bold px-8 shadow-lg shadow-primary/20" 
                 onClick={handleUpdateStatus}
-                disabled={updatingStatus || (newStatus === 'baja' && !decommFile)}
+                disabled={updatingStatus || ((newStatus === 'baja' || newStatus === 'baja_repuestos') && !decommFile && !statusToChange?.decommissioningActUrl)}
               >
                 {updatingStatus ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Actualizando...</>
@@ -865,6 +1037,17 @@ export default function Inventory() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* In-app feedback modal */}
+      {feedback && (
+        <FeedbackModal
+          isOpen={!!feedback}
+          onClose={() => setFeedback(null)}
+          title={feedback.title}
+          message={feedback.message}
+          type={feedback.type}
+        />
+      )}
     </div>
   );
 }

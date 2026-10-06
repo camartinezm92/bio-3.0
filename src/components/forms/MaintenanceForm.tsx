@@ -378,6 +378,7 @@ export default function MaintenanceForm({ equipment, onCancel, onSuccess, initia
                equipmentDirId: equipment.driveFolderId || '',
                equipmentSerial: equipment.serial,
                equipmentName: equipment.name,
+               technologyScope: equipment.technologyScope || 'biomedical',
                folderType: fType,
                fileName: `ANEXO_${reportData.reportNumber}_${attachmentFile.name.replace(/\s+/g, '_')}`,
                base64: attachmentBase64,
@@ -399,6 +400,7 @@ export default function MaintenanceForm({ equipment, onCancel, onSuccess, initia
 
       await addDoc(collection(db, 'reports'), {
         ...reportData,
+        technologyScope: equipment.technologyScope || 'biomedical',
         createdAt: serverTimestamp()
       });
 

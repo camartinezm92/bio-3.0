@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 import { useConnectionMonitor } from '@/hooks/useConnectionMonitor';
 
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
@@ -28,6 +29,7 @@ import { db } from '@/lib/firebase';
 export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
   const location = useLocation();
   const { logout, user } = useAuth();
+  const { scopeConfig } = useTechnologyScope();
   const { googleStatus } = useConnectionMonitor();
   const [pendingCount, setPendingCount] = React.useState(0);
 
@@ -120,6 +122,46 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
         </div>
       </div>
       
+      {/* Indicador de Área Tecnológica Activa */}
+      {!isCollapsed ? (
+        <div className="px-4 pt-3 pb-1">
+          <Link
+            to="/portal"
+            className={cn(
+              "flex items-center justify-between p-2.5 rounded-2xl border text-xs font-bold transition-all shadow-xs hover:opacity-90 active:scale-98",
+              scopeConfig.badgeBg,
+              scopeConfig.badgeBorder,
+              scopeConfig.textColor
+            )}
+            title="Clic para cambiar de área en el Portal de Módulos"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <scopeConfig.icon className="h-4 w-4 shrink-0" />
+              <div className="truncate text-left">
+                <span className="block text-[9px] uppercase tracking-wider font-extrabold opacity-70">Área Activa</span>
+                <span className="block font-black truncate leading-tight">{scopeConfig.shortLabel}</span>
+              </div>
+            </div>
+            <span className="text-[10px] opacity-70 underline font-semibold shrink-0 ml-1">Cambiar</span>
+          </Link>
+        </div>
+      ) : (
+        <div className="pt-3 pb-1 flex justify-center">
+          <Link
+            to="/portal"
+            className={cn(
+              "h-9 w-9 flex items-center justify-center rounded-xl border transition-all hover:opacity-90",
+              scopeConfig.badgeBg,
+              scopeConfig.badgeBorder,
+              scopeConfig.textColor
+            )}
+            title={`Área activa: ${scopeConfig.label}. Clic para cambiar.`}
+          >
+            <scopeConfig.icon className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
+
       <nav className="flex-1 space-y-1.5 p-4 overflow-y-auto">
         {filteredMenuItems.map((item: any) => {
           const isActive = location.pathname === item.href;

@@ -31,6 +31,7 @@ import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, li
 import { db } from '@/lib/firebase';
 import { Equipment, Transfer, Service } from '@/types';
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 import { mockServices } from '@/services/mockData';
 import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
@@ -49,6 +50,7 @@ interface TransferFormProps {
 
 export default function TransferForm({ onCancel, onSuccess, initialData, readOnly }: TransferFormProps) {
   const { user } = useAuth();
+  const { scope, filterByScope } = useTechnologyScope();
   const [loading, setLoading] = React.useState(false);
   const [success, setSuccess] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -147,8 +149,12 @@ export default function TransferForm({ onCancel, onSuccess, initialData, readOnl
       const snapAsset = await getDocs(qAsset);
       
       if (!snapAsset.empty) {
-        selectEquipment({ ...snapAsset.docs[0].data(), id: snapAsset.docs[0].id } as Equipment);
-        return;
+        const found = { ...snapAsset.docs[0].data(), id: snapAsset.docs[0].id } as Equipment;
+        const eqScope = found.technologyScope || 'biomedical';
+        if (scope === 'all' || eqScope === scope) {
+          selectEquipment(found);
+          return;
+        }
       }
 
       // 2. Try exact match for Serial
@@ -159,17 +165,22 @@ export default function TransferForm({ onCancel, onSuccess, initialData, readOnl
       const snapSerial = await getDocs(qSerial);
       
       if (!snapSerial.empty) {
-        selectEquipment({ ...snapSerial.docs[0].data(), id: snapSerial.docs[0].id } as Equipment);
-        return;
+        const found = { ...snapSerial.docs[0].data(), id: snapSerial.docs[0].id } as Equipment;
+        const eqScope = found.technologyScope || 'biomedical';
+        if (scope === 'all' || eqScope === scope) {
+          selectEquipment(found);
+          return;
+        }
       }
 
       // 3. Try partial match for Name (fetching all and filtering locally for better UX)
       // Note: In production with thousands of items, this should be a prefix query or use Algolia
-      const qAll = query(collection(db, 'equipment'), limit(100));
+      const qAll = query(collection(db, 'equipment'), limit(150));
       const snapAll = await getDocs(qAll);
       const allEq = snapAll.docs.map(doc => ({ ...doc.data(), id: doc.id } as Equipment));
+      const scopedEq = filterByScope(allEq);
       
-      const filtered = allEq.filter(eq => 
+      const filtered = scopedEq.filter(eq => 
         eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         eq.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
         eq.assetNumber.toLowerCase().includes(searchTerm.toLowerCase())
@@ -378,6 +389,7 @@ export default function TransferForm({ onCancel, onSuccess, initialData, readOnl
     try {
       let transferData: any = {
         ...formData,
+        technologyScope: selectedEquipment.technologyScope || (scope === 'all' ? 'biomedical' : scope),
         deliveredBySignature: getSignatureData(deliverySigRef),
         receivedBySignature: getSignatureData(receptionSigRef),
       };

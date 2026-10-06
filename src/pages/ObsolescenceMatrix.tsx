@@ -20,6 +20,7 @@ import {
 import { db, cleanFirestoreData } from '@/lib/firebase';
 import { collection, onSnapshot, query, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,6 +75,7 @@ import autoTable from 'jspdf-autotable';
 export default function ObsolescenceMatrix() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
 
   const [equipments, setEquipments] = React.useState<Equipment[]>([]);
   const [reports, setReports] = React.useState<MaintenanceReport[]>([]);
@@ -174,24 +176,29 @@ export default function ObsolescenceMatrix() {
     };
   }, []);
 
+  // Filtrar equipos según el ámbito de tecnología activo
+  const scopedEquipments = React.useMemo(() => {
+    return filterByScope(equipments);
+  }, [equipments, filterByScope]);
+
   // Consolidar todas las evaluaciones (guardadas o auto-calculadas dinámicamente)
   const allEvaluations: ObsolescenceEvaluation[] = React.useMemo(() => {
-    return equipments.map(eq => {
+    return scopedEquipments.map(eq => {
       if (savedEvaluations[eq.id]) {
         return savedEvaluations[eq.id];
       }
       const eqReports = reports.filter(r => r.equipmentId === eq.id);
       return generateFullObsolescenceEvaluation(eq, eqReports, {
         id: user?.uid || 'sys',
-        name: user?.displayName || 'Ingeniero Biomédico'
+        name: user?.displayName || 'Ingeniero Responsable'
       });
     });
-  }, [equipments, reports, savedEvaluations, user]);
+  }, [scopedEquipments, reports, savedEvaluations, user]);
 
   // Indicadores institucionales de gestión GTE-GUI-003
   const indicators = React.useMemo(() => {
-    return calculateInstitutionalIndicators(allEvaluations, equipments.length);
-  }, [allEvaluations, equipments.length]);
+    return calculateInstitutionalIndicators(allEvaluations, scopedEquipments.length);
+  }, [allEvaluations, scopedEquipments.length]);
 
   // Filtrado y ordenamiento de la lista
   const filteredEvaluations = React.useMemo(() => {
@@ -622,15 +629,18 @@ export default function ObsolescenceMatrix() {
               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/30">
                 GTE-GUI-003-V1 / GTE-MTX-001-V1
               </span>
+              <span className={cn("text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+                Área: {scopeConfig.shortLabel}
+              </span>
               <span className="text-xs text-slate-400 font-medium">Medicina Intensiva del Tolima S.A.</span>
               <span className="text-xs text-slate-400">•</span>
               <span className="text-xs text-slate-400 font-bold">UCI Honda</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Matriz de Evaluación y Gestión de la Obsolescencia Biomédica
+              Matriz de Evaluación y Gestión de la Obsolescencia - {scopeConfig.shortLabel}
             </h1>
             <p className="text-sm text-slate-300 max-w-3xl leading-relaxed">
-              Sistema de soporte a la planeación de reposición, renovación tecnológica e intervención técnica basada en 8 dimensiones ponderadas con trazabilidad de mantenimiento, calibración y seguridad del paciente.
+              Sistema de soporte a la planeación de reposición, renovación tecnológica e intervención técnica basada en 8 dimensiones ponderadas con trazabilidad de mantenimiento, calibración y seguridad en {scopeConfig.label.toLowerCase()}.
             </p>
           </div>
 

@@ -19,7 +19,7 @@ export interface ConfirmModalProps {
   description: string;
   confirmText?: string;
   cancelText?: string;
-  variant?: 'danger' | 'warning' | 'primary';
+  variant?: 'danger' | 'warning' | 'primary' | 'destructive' | 'default';
   icon?: 'trash' | 'warning' | 'info';
   isLoading?: boolean;
 }
@@ -36,6 +36,8 @@ export function ConfirmModal({
   icon = 'warning',
   isLoading = false
 }: ConfirmModalProps) {
+  const normalizedVariant = variant === 'destructive' ? 'danger' : variant === 'default' ? 'primary' : variant;
+
   const getIcon = () => {
     switch (icon) {
       case 'trash':
@@ -49,7 +51,7 @@ export function ConfirmModal({
   };
 
   const getIconBg = () => {
-    switch (variant) {
+    switch (normalizedVariant) {
       case 'danger':
         return 'bg-rose-50 border-rose-100 text-rose-600';
       case 'warning':
@@ -112,7 +114,8 @@ export interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  description: string;
+  description?: string;
+  message?: string;
   type?: 'success' | 'error' | 'warning' | 'info';
   buttonText?: string;
 }
@@ -122,9 +125,12 @@ export function FeedbackModal({
   onClose,
   title,
   description,
+  message,
   type = 'info',
   buttonText = 'Entendido'
 }: FeedbackModalProps) {
+  const contentText = message || description || '';
+
   const getIcon = () => {
     switch (type) {
       case 'success':
@@ -165,7 +171,7 @@ export function FeedbackModal({
               {title}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              {description}
+              {contentText}
             </DialogDescription>
           </div>
         </div>

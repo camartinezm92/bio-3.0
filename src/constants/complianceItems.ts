@@ -654,3 +654,372 @@ export const DEFAULT_COMPLIANCE_ITEMS: ComplianceItem[] = [
     applicableServices: ['ambulancia']
   }
 ];
+
+export const COMPLIANCE_ITEMS_BIOMEDICAL = DEFAULT_COMPLIANCE_ITEMS;
+
+// --- LISTA DE CHEQUEO TIC / SISTEMAS (Resolución 3100 de 2019) ---
+// Estándar de Historia Clínica y Registros, Dotación TIC y Sistemas de Información
+export const COMPLIANCE_ITEMS_COMPUTING: ComplianceItem[] = [
+  // 1. Historia Clínica Electrónica y Sistemas de Información Asistencial
+  {
+    id: 'tic-hce-1',
+    category: 'Historia Clínica y Registros (Res. 3100)',
+    name: 'Disponibilidad de Historia Clínica Digital 24/7',
+    description: 'El software de HCE se encuentra en funcionamiento continuo, con tiempos de respuesta óptimos y sin caídas no programadas en el servicio.',
+    normReference: 'Resolución 3100 de 2019 - Estándar HC y Registros'
+  },
+  {
+    id: 'tic-hce-2',
+    category: 'Historia Clínica y Registros (Res. 3100)',
+    name: 'Integridad e Inalterabilidad de Registros Médicos',
+    description: 'El sistema garantiza que cada registro guarde fecha, hora, nombre y rol del profesional, impidiendo modificaciones posteriores sin trazabilidad ni versionado.',
+    normReference: 'Resolución 3100 de 2019 / Ley 1438 de 2011'
+  },
+  {
+    id: 'tic-hce-3',
+    category: 'Historia Clínica y Registros (Res. 3100)',
+    name: 'Firma Digital y Mecanismos de Autenticación',
+    description: 'Los profesionales de salud del servicio cuentan con firma digital o electrónica funcional para el aval legal de historias, evoluciones y órdenes médicas.',
+    normReference: 'Ley 527 de 1999 / Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-hce-4',
+    category: 'Historia Clínica y Registros (Res. 3100)',
+    name: 'Trazabilidad y Logs de Auditoría',
+    description: 'El sistema registra pistas de auditoría activas (consultas, ingresos, modificaciones y descargas) sobre datos sensibles de pacientes.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+
+  // 2. Equipos de Cómputo y Periféricos
+  {
+    id: 'tic-eq-1',
+    category: 'Equipos de Cómputo y Periféricos',
+    name: 'Estaciones de Trabajo y Computadores Operativos',
+    description: 'Terminales suficientes para la demanda asistencial del servicio, con hardware operativo, pantalla sin fallas, teclado y ratón limpios y funcionales.',
+    normReference: 'Resolución 3100 de 2019 - Estándar Dotación'
+  },
+  {
+    id: 'tic-eq-2',
+    category: 'Equipos de Cómputo y Periféricos',
+    name: 'Programa de Mantenimiento Preventivo de Hardware',
+    description: 'Cumplimiento del cronograma institucional de limpieza interna, soplado, lubricación térmica y verificación de voltajes en equipos TIC del servicio.',
+    normReference: 'Resolución 3100 de 2019 / Protocolo Institucional TIC'
+  },
+  {
+    id: 'tic-eq-3',
+    category: 'Equipos de Cómputo y Periféricos',
+    name: 'Impresoras y Escáneres Asistenciales Operativos',
+    description: 'Impresoras para órdenes médicas, fórmulas, consentimientos informados y etiquetas con nivel de tóner adecuado y sin atascos continuos.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-eq-4',
+    category: 'Equipos de Cómputo y Periféricos',
+    name: 'Identificación y Hoja de Vida de Equipos TIC',
+    description: 'Terminales debidamente inventariadas con placa de activo, serial, modelo y registro técnico en la base de datos de sistemas.',
+    normReference: 'Resolución 3100 de 2019 - Gestión Tecnológica'
+  },
+
+  // 3. Redes, Conectividad y Telecomunicaciones
+  {
+    id: 'tic-red-1',
+    category: 'Redes, Conectividad y Telefonía',
+    name: 'Puntos de Red Cableada y Conectividad LAN',
+    description: 'Puntos de red estructurados operativos y certificados en cada puesto médico o de enfermería, sin cables sueltos o en mal estado.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-red-2',
+    category: 'Redes, Conectividad y Telefonía',
+    name: 'Cobertura y Estabilidad de Red WiFi Institucional',
+    description: 'Señal inalámbrica segura y con ancho de banda suficiente para tabletas, monitores interconectados y personal en ronda clínica.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-red-3',
+    category: 'Redes, Conectividad y Telefonía',
+    name: 'Telefonía IP y Comunicación Asistencial',
+    description: 'Teléfonos y extensiones internas comunicadas y funcionales para interconsultas y llamadas de emergencia médica.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+
+  // 4. Seguridad Digital, Ciberseguridad y Habeas Data
+  {
+    id: 'tic-seg-1',
+    category: 'Seguridad de la Información y Habeas Data',
+    name: 'Control de Acceso y Cuentas Nominales Únicas',
+    description: 'Cada funcionario accede con su usuario nominal personal; no se observan credenciales compartidas ni anotadas en adhesivos.',
+    normReference: 'Ley 1581 de 2012 / Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-seg-2',
+    category: 'Seguridad de la Información y Habeas Data',
+    name: 'Bloqueo Automático de Pantalla por Inactividad',
+    description: 'Configuración activa de bloqueo tras máximo 5-10 minutos de inactividad para evitar exposición de historias clínicas a terceros.',
+    normReference: 'Ley 1581 de 2012 (Protección de Datos Personales)'
+  },
+  {
+    id: 'tic-seg-3',
+    category: 'Seguridad de la Información y Habeas Data',
+    name: 'Protección Endpoint y Antivirus Corporativo',
+    description: 'Software antivirus activo con firmas actualizadas en todas las estaciones de trabajo, y restricción de almacenamiento masivo USB no autorizado.',
+    normReference: 'Ley 1273 de 2009 (Delitos Informáticos)'
+  },
+  {
+    id: 'tic-seg-4',
+    category: 'Seguridad de la Información y Habeas Data',
+    name: 'Licenciamiento de Software y Sistemas Operativos',
+    description: 'Sistemas operativos y programas ofimáticos debidamente licenciados conforme a la normativa legal colombiana vigente.',
+    normReference: 'Ley 603 de 2000'
+  },
+
+  // 5. Respaldo de Energía y Contingencia Informática
+  {
+    id: 'tic-resp-1',
+    category: 'Respaldo de Energía y Plan de Contingencia',
+    name: 'Respaldo Eléctrico Ininterrumpido (UPS para TIC)',
+    description: 'Equipos de cómputo del servicio conectados a circuito regulado con respaldo de UPS ante cortes repentinos de energía.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-resp-2',
+    category: 'Respaldo de Energía y Plan de Contingencia',
+    name: 'Copias de Seguridad (Backups) y Restauración',
+    description: 'Políticas de copia de seguridad periódica comprobada sobre bases de datos asistenciales con almacenamiento redundante o en la nube.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'tic-resp-3',
+    category: 'Respaldo de Energía y Plan de Contingencia',
+    name: 'Plan de Contingencia ante Caída de Sistemas',
+    description: 'El servicio cuenta con protocolo documentado y formatos de contingencia en papel conocidos por el personal ante caídas de software o red.',
+    normReference: 'Resolución 3100 de 2019'
+  }
+];
+
+// --- LISTA DE CHEQUEO INFRAESTRUCTURA (Resolución 3100 de 2019) ---
+// Estándar de Infraestructura, Redes Eléctricas RETIE, Gases Medicinales y Condiciones Locativas
+export const COMPLIANCE_ITEMS_INFRASTRUCTURE: ComplianceItem[] = [
+  // 1. Instalaciones Eléctricas y Respaldo Energético
+  {
+    id: 'inf-elec-1',
+    category: 'Instalaciones Eléctricas y Respaldo (RETIE / Res. 3100)',
+    name: 'Planta Eléctrica de Emergencia y Transferencia Automática',
+    description: 'Planta de emergencia con transferencia automática comprobada en menos de 8 segundos, tanque de combustible con autonomía y bitácora de pruebas semanales al día.',
+    normReference: 'Resolución 3100 de 2019 / RETIE Res. 90708'
+  },
+  {
+    id: 'inf-elec-2',
+    category: 'Instalaciones Eléctricas y Respaldo (RETIE / Res. 3100)',
+    name: 'Respaldo Continuo por UPS para Áreas Críticas',
+    description: 'Sistemas de energía ininterrumpida (UPS) operativos para áreas de soporte vital (UCI, Quirófanos, Urgencias) con autonomía verificada.',
+    normReference: 'Resolución 3100 de 2019 / RETIE'
+  },
+  {
+    id: 'inf-elec-3',
+    category: 'Instalaciones Eléctricas y Respaldo (RETIE / Res. 3100)',
+    name: 'Tomacorrientes Grado Hospitalario y Polo a Tierra',
+    description: 'Tomas eléctricas con identificación de circuito (normal / emergencia / regulado), polaridad correcta y medición de puesta a tierra reglamentaria sin sobrecalentamiento.',
+    normReference: 'RETIE / Código Eléctrico NTC 2050 Sección 517'
+  },
+  {
+    id: 'inf-elec-4',
+    category: 'Instalaciones Eléctricas y Respaldo (RETIE / Res. 3100)',
+    name: 'Iluminación General y Lámparas de Emergencia',
+    description: 'Iluminación uniforme sin parpadeos en zonas de atención y lámparas autónomas de emergencia operativas en pasillos, accesos y cubículos.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+
+  // 2. Redes Centralizadas de Gases Medicinales
+  {
+    id: 'inf-gas-1',
+    category: 'Gases Medicinales y Redes de Soporte',
+    name: 'Tomas Murales de Oxígeno, Aire Medicinal y Vacío',
+    description: 'Tomas de gases herméticas, sin fugas audibles, con conectores no intercambiables identificados por color normativo y presión adecuada.',
+    normReference: 'Resolución 3100 de 2019 / Norma NTC 4410'
+  },
+  {
+    id: 'inf-gas-2',
+    category: 'Gases Medicinales y Redes de Soporte',
+    name: 'Paneles de Alarma y Monitoreo de Presión de Gases',
+    description: 'Tableros de alarma visual y sonora visibles en la estación de enfermería del servicio, calibrados y en estado normal de operación.',
+    normReference: 'Resolución 3100 de 2019 / NFPA 99'
+  },
+  {
+    id: 'inf-gas-3',
+    category: 'Gases Medicinales y Redes de Soporte',
+    name: 'Almacenamiento y Sujeción Segura de Cilindros',
+    description: 'Cilindros de gas con capuchón protector colocado, sujetados firmemente con cadenas o en carros portacilindros, separados los llenos de los vacíos.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+
+  // 3. Redes Hidrosanitarias y Suministro de Agua
+  {
+    id: 'inf-hidro-1',
+    category: 'Redes Hidrosanitarias y Agua Potable',
+    name: 'Suministro y Autonomía de Agua Potable',
+    description: 'Red hidráulica continua con presión óptima, tanques de reserva con autonomía mínima de 48-72 horas, lavado semestral y prueba microbiológica vigente.',
+    normReference: 'Resolución 3100 de 2019 / Resolución 4445 de 1996'
+  },
+  {
+    id: 'inf-hidro-2',
+    category: 'Redes Hidrosanitarias y Agua Potable',
+    name: 'Lavamanos con Accionamiento No Manual',
+    description: 'Lavamanos asistenciales con grifería de pedal, codo o sensor electrónico en áreas de procedimientos y preparación de medicamentos, con jabón y toallas.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'inf-hidro-3',
+    category: 'Redes Hidrosanitarias y Agua Potable',
+    name: 'Desagües, Sifones y Trampas Hidráulicas',
+    description: 'Sifones con rejilla asegurada, sin estancamientos ni malos olores, tuberías de evacuación y bajantes en óptimo estado.',
+    normReference: 'Resolución 4445 de 1996'
+  },
+
+  // 4. Climatización, Aire Acondicionado y Ventilación
+  {
+    id: 'inf-aire-1',
+    category: 'Climatización y Ventilación Hospitalaria',
+    name: 'Control de Temperatura y Confort Térmico',
+    description: 'Equipos de aire acondicionado funcionales manteniendo temperatura entre 18°C y 24°C según el área clínica y registros de mantenimiento de filtros.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'inf-aire-2',
+    category: 'Climatización y Ventilación Hospitalaria',
+    name: 'Presiones de Aire Diferenciales y Renovación',
+    description: 'Presión positiva en áreas quirúrgicas/asépticas y presión negativa en áreas de aislamiento respiratorio, con extracción mecánica adecuada.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+
+  // 5. Condiciones Físicas y Acabados Locativos
+  {
+    id: 'inf-loc-1',
+    category: 'Condiciones Físicas y Locativas',
+    name: 'Pisos Hospitalarios y Uniones de Media Caña',
+    description: 'Pisos uniformes, continuos, impermeables, lavables, antideslizantes, sin grietas y uniones entre piso y pared con curva sanitaria (media caña) intacta.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'inf-loc-2',
+    category: 'Condiciones Físicas y Locativas',
+    name: 'Paredes y Cielorrasos Lavables',
+    description: 'Paredes con pintura epóxica o antibacterial lavable, cielorrasos fijos o continuos sin desprendimiento de partículas ni manchas de humedad.',
+    normReference: 'Resolución 3100 de 2019'
+  },
+  {
+    id: 'inf-loc-3',
+    category: 'Condiciones Físicas y Locativas',
+    name: 'Puertas, Pasillos y Accesos Asistenciales',
+    description: 'Anchos libres reglamentarios para circulación de camillas, puertas con visores transparentes y protectores contra golpes en buen estado.',
+    normReference: 'Resolución 3100 de 2019 / Ley 361 de 1997'
+  },
+
+  // 6. Seguridad Humana, Emergencias y Residuos
+  {
+    id: 'inf-seg-1',
+    category: 'Seguridad Humana, Evacuación y Residuos',
+    name: 'Rutas de Evacuación y Señalización de Emergencia',
+    description: 'Señales fotoluminiscentes visibles de salida y evacuación, pasillos despejados sin obstáculos y plano de emergencias visible en el servicio.',
+    normReference: 'Resolución 3100 de 2019 / NSR-10'
+  },
+  {
+    id: 'inf-seg-2',
+    category: 'Seguridad Humana, Evacuación y Residuos',
+    name: 'Extintores y Protección Contra Incendios',
+    description: 'Extintores reglamentarios (Multipropósito ABC / Solkaflam / CO2) a altura normativa, con manómetro en verde, precinto e inspección vigente.',
+    normReference: 'Resolución 3100 de 2019 / NFPA 10'
+  },
+  {
+    id: 'inf-seg-3',
+    category: 'Seguridad Humana, Evacuación y Residuos',
+    name: 'Gestión y Segregación de Residuos Hospitalarios',
+    description: 'Recipientes con accionamiento de pedal y bolsas según código de colores normativo (Verde, Blanco, Negro, Rojo) y cuarto de almacenamiento temporal de residuos señalizado.',
+    normReference: 'Resolución 2184 de 2019 / Resolución 3100 de 2019'
+  }
+];
+
+export function getComplianceItems(scope: 'biomedical' | 'computing' | 'infrastructure' | 'all', serviceId?: string): ComplianceItem[] {
+  if (scope === 'computing') {
+    return COMPLIANCE_ITEMS_COMPUTING.filter(item => 
+      !item.applicableServices || (serviceId ? item.applicableServices.includes(serviceId) : true)
+    );
+  }
+
+  if (scope === 'infrastructure') {
+    return COMPLIANCE_ITEMS_INFRASTRUCTURE.filter(item => 
+      !item.applicableServices || (serviceId ? item.applicableServices.includes(serviceId) : true)
+    );
+  }
+
+  // biomedical or default
+  return DEFAULT_COMPLIANCE_ITEMS.filter(item => 
+    !item.applicableServices || (serviceId ? item.applicableServices.includes(serviceId) : true)
+  );
+}
+
+export interface ScopeComplianceMeta {
+  title: string;
+  shortTitle: string;
+  standardName: string;
+  standardReference: string;
+  macroproceso: string;
+  proceso: string;
+  responsable: string;
+  formCode: string;
+  badgeText: string;
+}
+
+export function getScopeComplianceMeta(scope: 'biomedical' | 'computing' | 'infrastructure' | 'all'): ScopeComplianceMeta {
+  switch (scope) {
+    case 'computing':
+      return {
+        title: 'Lista de Chequeo: Historia Clínica y Sistemas TIC',
+        shortTitle: 'Chequeo Trimestral TIC',
+        standardName: 'Estándar de Historia Clínica, Registros y Tecnologías TIC',
+        standardReference: 'Res. 3100 de 2019 (HC y Registros) / Ley 1581 de 2012 / Ley 1273 de 2009',
+        macroproceso: 'Gestión Estratégica y Soporte Tecnológico',
+        proceso: 'Gestión de Tecnologías de la Información y Comunicaciones (TIC)',
+        responsable: 'Líder de Sistemas / Coordinador TIC',
+        formCode: 'TIC-FOR-015-V1',
+        badgeText: 'TIC / SISTEMAS'
+      };
+    case 'infrastructure':
+      return {
+        title: 'Lista de Chequeo: Infraestructura y Redes Hospitalarias',
+        shortTitle: 'Chequeo Trimestral Infraestructura',
+        standardName: 'Estándar de Infraestructura, Redes Eléctricas RETIE y Gases',
+        standardReference: 'Res. 3100 de 2019 (Infraestructura) / RETIE Res. 90708 / Res. 4445 de 1996 / NTC 4410',
+        macroproceso: 'Gestión de Infraestructura y Soporte Operativo',
+        proceso: 'Gestión de Infraestructura y Mantenimiento Hospitalario',
+        responsable: 'Líder de Mantenimiento / Infraestructura',
+        formCode: 'INF-FOR-022-V1',
+        badgeText: 'INFRAESTRUCTURA'
+      };
+    case 'all':
+      return {
+        title: 'Lista de Chequeo: Habilitación Institucional Integral',
+        shortTitle: 'Chequeo Integral Res. 3100',
+        standardName: 'Estándares Integrales de Habilitación de Servicios de Salud',
+        standardReference: 'Resolución 3100 de 2019 (Dotación, TIC e Infraestructura)',
+        macroproceso: 'Calidad, Mejora Continua y Gestión Integral',
+        proceso: 'Auditoría Institucional y Gestión Tecnológica Multidisciplinaria',
+        responsable: 'Dirección Médica / Calidad / Líderes de Área',
+        formCode: 'INST-FOR-100-V1',
+        badgeText: 'GENERAL'
+      };
+    case 'biomedical':
+    default:
+      return {
+        title: 'Lista de Chequeo: Dotación y Equipamiento Biomédico',
+        shortTitle: 'Chequeo Trimestral Biomédica',
+        standardName: 'Estándar de Dotación Biomédica y Dispositivos Médicos',
+        standardReference: 'Res. 3100 de 2019 (Dotación) / Decreto 4725 de 2005',
+        macroproceso: 'Calidad y Mejora Continua',
+        proceso: 'Gestión de Tecnología Biomédica',
+        responsable: 'Líder de Calidad / Ingeniero Biomédico',
+        formCode: 'CAL-FOR-088-V1',
+        badgeText: 'BIOMÉDICA'
+      };
+  }
+}

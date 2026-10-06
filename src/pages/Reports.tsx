@@ -14,9 +14,12 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { MaintenanceReport } from '@/types';
+import { MaintenanceReport, Equipment } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { ConfirmModal, FeedbackModal } from '@/components/ui/ConfirmModal';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -29,12 +32,15 @@ import { generateMaintenancePDF } from '@/lib/pdfGenerator';
 
 export default function Reports() {
   const navigate = useNavigate();
+  const { scope, scopeConfig } = useTechnologyScope();
   const [reports, setReports] = React.useState<MaintenanceReport[]>([]);
+  const [equipmentMap, setEquipmentMap] = React.useState<Record<string, Equipment>>({});
   const [loading, setLoading] = React.useState(true);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [selectedReport, setSelectedReport] = React.useState<MaintenanceReport | null>(null);
   const [reportToDelete, setReportToDelete] = React.useState<MaintenanceReport | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   const handleDownload = (report: MaintenanceReport) => {
     // If it's an external report or calibration with an attachment, open the link
@@ -52,10 +58,20 @@ export default function Reports() {
     setDeleting(true);
     try {
       await deleteDoc(doc(db, 'reports', reportToDelete.id));
+      const repNum = reportToDelete.reportNumber;
       setReportToDelete(null);
+      setFeedback({
+        title: 'Reporte Eliminado',
+        message: `El reporte ${repNum || ''} fue eliminado correctamente.`,
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error deleting report:', error);
-      alert('Error al eliminar el reporte.');
+      setFeedback({
+        title: 'Error al Eliminar',
+        message: 'No fue posible eliminar el reporte. Por favor intente nuevamente.',
+        type: 'error'
+      });
     } finally {
       setDeleting(false);
     }
@@ -63,7 +79,7 @@ export default function Reports() {
 
   React.useEffect(() => {
     const q = query(collection(db, 'reports'), orderBy('date', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubReports = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id
@@ -75,10 +91,30 @@ export default function Reports() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubEquip = onSnapshot(collection(db, 'equipment'), (snapshot) => {
+      const map: Record<string, Equipment> = {};
+      snapshot.docs.forEach(doc => {
+        map[doc.id] = { ...doc.data(), id: doc.id } as Equipment;
+      });
+      setEquipmentMap(map);
+    });
+
+    return () => {
+      unsubReports();
+      unsubEquip();
+    };
   }, []);
 
-  const filteredReports = reports.filter(report => 
+  const scopedReports = React.useMemo(() => {
+    if (scope === 'all') return reports;
+    return reports.filter(report => {
+      const eq = equipmentMap[report.equipmentId];
+      const eqScope = (report as any).technologyScope || eq?.technologyScope || 'biomedical';
+      return eqScope === scope;
+    });
+  }, [reports, equipmentMap, scope]);
+
+  const filteredReports = scopedReports.filter(report => 
     report.equipmentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     report.technicianName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     report.reportNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -111,11 +147,18 @@ export default function Reports() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-6">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900">Reportes de Mantenimiento</h1>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900">
+            Reportes de Mantenimiento - <span className="text-primary">{scopeConfig.label}</span>
+          </h1>
           <p className="text-slate-500 font-medium">
-            Historial de intervenciones técnicas y preventivas.
+            Historial de intervenciones técnicas y preventivas para {scopeConfig.shortLabel.toLowerCase()}.
           </p>
         </div>
         <Button 
@@ -339,6 +382,17 @@ export default function Reports() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* In-app feedback modal */}
+      {feedback && (
+        <FeedbackModal
+          isOpen={!!feedback}
+          onClose={() => setFeedback(null)}
+          title={feedback.title}
+          message={feedback.message}
+          type={feedback.type}
+        />
+      )}
     </div>
   );
 }

@@ -13,13 +13,37 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, ArrowRight, Save, Loader2, CheckCircle2, ExternalLink, Image as ImageIcon, FileUp, ShieldCheck, Plus, Trash } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  ArrowRight, 
+  Save, 
+  Loader2, 
+  CheckCircle2, 
+  ExternalLink, 
+  Image as ImageIcon, 
+  FileUp, 
+  ShieldCheck, 
+  Plus, 
+  Trash,
+  Laptop,
+  Building2,
+  Stethoscope,
+  Cpu,
+  Network,
+  Zap,
+  Info,
+  Server,
+  HardDrive
+} from 'lucide-react';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, onSnapshot, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Equipment, Service, Provider } from '@/types';
 import { mockServices } from '@/services/mockData';
 import { generateEquipmentCVPDF } from '@/lib/pdfGenerator';
 import { projectScheduleMonths } from '@/lib/schedule-utils';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { cn } from '@/lib/utils';
+import { FeedbackModal } from '@/components/ui/ConfirmModal';
 
 interface EquipmentFormProps {
   onCancel: () => void;
@@ -28,6 +52,7 @@ interface EquipmentFormProps {
 }
 
 export default function EquipmentForm({ onCancel, initialData, onSuccess }: EquipmentFormProps) {
+  const { scope: activeScope } = useTechnologyScope();
   const [step, setStep] = React.useState(1);
   const [loading, setLoading] = React.useState(false);
   const [success, setSuccess] = React.useState(false);
@@ -37,6 +62,9 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
   const [manualFile, setManualFile] = React.useState<File | null>(null);
   const [protocolFile, setProtocolFile] = React.useState<File | null>(null);
   const [sheetsId, setSheetsId] = React.useState('');
+  const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
+
+  const initialScope = initialData?.technologyScope || (activeScope === 'all' ? 'biomedical' : activeScope);
 
   const [formData, setFormData] = React.useState<Partial<Equipment>>(initialData 
     ? { ...initialData, originalSerial: initialData.serial } 
@@ -48,9 +76,10 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
     assetNumber: '',
     serviceId: '',
     serviceName: '',
+    technologyScope: initialScope,
     status: 'active',
-    riskClass: 'I',
-    biomedicalType: 'diagnostic',
+    riskClass: initialScope === 'biomedical' ? 'I' : undefined,
+    biomedicalType: initialScope === 'biomedical' ? 'diagnostic' : undefined,
     maintenanceFrequency: 4,
     location: '',
     acquisitionDate: '',
@@ -58,6 +87,29 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
     registrationExpiration: '',
     lastMaintenance: '',
     nextMaintenance: '',
+    // TIC fields
+    itCategory: 'Estación de Trabajo / PC',
+    itCriticality: 'Media (Asistencial / Facturación)',
+    operatingSystem: '',
+    ipAddress: '',
+    macAddress: '',
+    networkConnection: 'Cableado (LAN)',
+    processor: '',
+    ramMemory: '',
+    storageCapacity: '',
+    antivirusSoftware: '',
+    licenseStatus: '',
+    functionalRole: '',
+    // Industrial / Infra fields
+    industrialSystem: 'Generación y Respaldo (Planta/UPS)',
+    industrialCriticality: 'Alta (Soporte Vital / Continuidad Crítica)',
+    capacityPower: '',
+    operatingVoltage: '',
+    fuelOrFluids: '',
+    technicalNorm: 'RETIE / NTC 2050',
+    certCertificateNumber: '',
+    coverageArea: '',
+    functionalDescription: '',
   });
 
   const [providers, setProviders] = React.useState<Provider[]>([]);
@@ -159,20 +211,33 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
   }, [formData.lastCalibration, formData.calibrationFrequency]);
 
   const validateStep = () => {
+    const scope = formData.technologyScope || 'biomedical';
     if (step === 1) {
-      return formData.name && formData.brand && formData.model && formData.serial && formData.assetNumber && formData.serviceId;
+      return !!(formData.name && formData.brand && formData.model && formData.serial && formData.assetNumber && formData.serviceId);
     }
     if (step === 2) {
-      return formData.riskClass && formData.biomedicalType && formData.registrationInvima && formData.registrationExpiration;
+      if (scope === 'biomedical') {
+        return !!(formData.riskClass && formData.biomedicalType && formData.registrationInvima && formData.registrationExpiration);
+      }
+      if (scope === 'computing') {
+        return !!(formData.itCategory && formData.itCriticality);
+      }
+      if (scope === 'infrastructure') {
+        return !!(formData.industrialSystem && formData.industrialCriticality);
+      }
+      return true;
     }
     if (step === 3) {
-      return formData.maintenanceFrequency && formData.lastMaintenance && formData.nextMaintenance;
+      return !!(formData.maintenanceFrequency && formData.lastMaintenance && formData.nextMaintenance);
     }
     if (step === 4) {
       return true; // Accesorios y anexos son opcionales
     }
     if (step === 5) {
-      return formData.equipmentType && formData.predominantTechnology; // Requerir algunos básicos
+      if (scope === 'biomedical') {
+        return !!(formData.equipmentType && formData.predominantTechnology);
+      }
+      return !!formData.equipmentType;
     }
     if (step === 6) {
       return true; 
@@ -303,12 +368,20 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
       };
       delete dataToSave.photoThumbnail; // No guardamos Base64 en Firestore para ahorrar DB, todo va por Drive
 
+      // Filtrar y eliminar cualquier clave undefined para evitar errores de Firestore
+      const cleanDataToSave: Record<string, any> = {};
+      Object.keys(dataToSave).forEach(key => {
+        if ((dataToSave as any)[key] !== undefined) {
+          cleanDataToSave[key] = (dataToSave as any)[key];
+        }
+      });
+
       // 2. Guardar en Firestore con la metadata de Drive
       if (initialData?.id) {
-        await updateDoc(doc(db, 'equipment', initialData.id), dataToSave);
+        await updateDoc(doc(db, 'equipment', initialData.id), cleanDataToSave);
       } else {
         await addDoc(collection(db, 'equipment'), {
-          ...dataToSave,
+          ...cleanDataToSave,
           createdAt: serverTimestamp()
         });
       }
@@ -319,7 +392,11 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
       }, 2000);
     } catch (error: any) {
       console.error('Error saving equipment:', error);
-      alert('Error: ' + error.message);
+      setFeedback({
+        title: 'Error al Guardar Equipo',
+        message: error.message || 'No fue posible guardar la información del equipo en la base de datos.',
+        type: 'error'
+      });
     } finally {
       setLoading(false);
     }
@@ -361,6 +438,89 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px]">1</span>
               Información Básica
             </div>
+
+            {/* Selector de Ámbito Tecnológico */}
+            <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2.5">
+              <Label className="text-slate-800 font-bold text-xs flex items-center justify-between">
+                <span>Área de Gestión Tecnológica *</span>
+                <span className="text-[11px] text-slate-500 font-normal">Define el módulo donde se listará y gestionará el equipo</span>
+              </Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      technologyScope: 'biomedical',
+                      riskClass: prev.riskClass || 'I',
+                      biomedicalType: prev.biomedicalType || 'diagnostic'
+                    }));
+                  }}
+                  className={cn(
+                    "p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer",
+                    (formData.technologyScope || 'biomedical') === 'biomedical'
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  <span className="text-lg">🩺</span>
+                  <div>
+                    <div className="text-xs font-bold">Biomédica</div>
+                    <div className="text-[10px] text-slate-500 leading-tight">Médico y clínico</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      technologyScope: 'computing',
+                      itCategory: prev.itCategory || 'Estación de Trabajo / PC',
+                      itCriticality: prev.itCriticality || 'Media (Asistencial / Facturación)',
+                      networkConnection: prev.networkConnection || 'Cableado (LAN)'
+                    }));
+                  }}
+                  className={cn(
+                    "p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer",
+                    formData.technologyScope === 'computing'
+                      ? "bg-indigo-50 border-indigo-500 text-indigo-950 ring-2 ring-indigo-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  <span className="text-lg">💻</span>
+                  <div>
+                    <div className="text-xs font-bold">Cómputo (TIC)</div>
+                    <div className="text-[10px] text-slate-500 leading-tight">Sistemas y redes</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      technologyScope: 'infrastructure',
+                      industrialSystem: prev.industrialSystem || 'Generación y Respaldo (Planta/UPS)',
+                      industrialCriticality: prev.industrialCriticality || 'Alta (Soporte Vital / Continuidad Crítica)'
+                    }));
+                  }}
+                  className={cn(
+                    "p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer",
+                    formData.technologyScope === 'infrastructure'
+                      ? "bg-amber-50 border-amber-500 text-amber-950 ring-2 ring-amber-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  <span className="text-lg">⚡</span>
+                  <div>
+                    <div className="text-xs font-bold">Infraestructura</div>
+                    <div className="text-[10px] text-slate-500 leading-tight">UPS, plantas, clima</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="name" className="text-slate-700 font-semibold">Nombre del Equipo *</Label>
@@ -475,7 +635,11 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
             <div className="flex items-center gap-2 text-primary font-bold text-sm uppercase tracking-wider">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px]">2</span>
-              Clasificación y Riesgo
+              {(formData.technologyScope || 'biomedical') === 'biomedical'
+                ? 'Clasificación y Riesgo Biomédico'
+                : formData.technologyScope === 'computing'
+                ? 'Clasificación e Impacto TIC / Cómputo'
+                : 'Clasificación e Impacto Industrial / Infraestructura'}
             </div>
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
@@ -543,68 +707,268 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
                   )}
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="risk" className="text-slate-700 font-semibold">Clase de Riesgo *</Label>
-                <Select onValueChange={(v) => handleChange('riskClass', v)} value={formData.riskClass || ""}>
-                  <SelectTrigger className="rounded-xl border-slate-200">
-                    <SelectValue placeholder="Seleccionar clase" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="I">Clase I (Bajo)</SelectItem>
-                    <SelectItem value="IIa">Clase IIa (Moderado)</SelectItem>
-                    <SelectItem value="IIb">Clase IIb (Alto)</SelectItem>
-                    <SelectItem value="III">Clase III (Muy Alto)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="type" className="text-slate-700 font-semibold">Tipo Biomédico *</Label>
-                <Select onValueChange={(v) => handleChange('biomedicalType', v)} value={formData.biomedicalType || ""}>
-                  <SelectTrigger className="rounded-xl border-slate-200">
-                    <SelectValue placeholder="Seleccionar tipo" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="diagnostic">Diagnóstico</SelectItem>
-                    <SelectItem value="treatment">Tratamiento</SelectItem>
-                    <SelectItem value="rehabilitation">Rehabilitación</SelectItem>
-                    <SelectItem value="support">Soporte</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="invima" className="text-slate-700 font-semibold">Registro INVIMA *</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    id="invima" 
-                    placeholder="Ej: 2019DM-0001234" 
-                    value={formData.registrationInvima ?? ""}
-                    onChange={(e) => handleChange('registrationInvima', e.target.value)}
-                    className="rounded-xl border-slate-200 focus:ring-primary/20"
-                  />
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    type="button"
-                    className="rounded-xl shrink-0"
-                    onClick={() => window.open('https://consultaregistro.invima.gov.co/Consultas/consultas/consreg_encabcum.jsp', '_blank')}
-                    title="Consultar en INVIMA"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="invimaExp" className="text-slate-700 font-semibold">Vencimiento INVIMA *</Label>
-                <Input 
-                  id="invimaExp" 
-                  type="date" 
-                  value={formData.registrationExpiration ?? ""}
-                  onChange={(e) => handleChange('registrationExpiration', e.target.value)}
-                  className="rounded-xl border-slate-200 focus:ring-primary/20"
-                />
-              </div>
+
+              {/* CAMPOS EXCLUSIVOS BIOMÉDICA */}
+              {(formData.technologyScope || 'biomedical') === 'biomedical' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="risk" className="text-slate-700 font-semibold">Clase de Riesgo *</Label>
+                    <Select onValueChange={(v) => handleChange('riskClass', v)} value={formData.riskClass || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar clase" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="I">Clase I (Bajo)</SelectItem>
+                        <SelectItem value="IIa">Clase IIa (Moderado)</SelectItem>
+                        <SelectItem value="IIb">Clase IIb (Alto)</SelectItem>
+                        <SelectItem value="III">Clase III (Muy Alto)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="type" className="text-slate-700 font-semibold">Tipo Biomédico *</Label>
+                    <Select onValueChange={(v) => handleChange('biomedicalType', v)} value={formData.biomedicalType || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar tipo" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="diagnostic">Diagnóstico</SelectItem>
+                        <SelectItem value="treatment">Tratamiento</SelectItem>
+                        <SelectItem value="rehabilitation">Rehabilitación</SelectItem>
+                        <SelectItem value="support">Soporte</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invima" className="text-slate-700 font-semibold">Registro INVIMA *</Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        id="invima" 
+                        placeholder="Ej: 2019DM-0001234" 
+                        value={formData.registrationInvima ?? ""}
+                        onChange={(e) => handleChange('registrationInvima', e.target.value)}
+                        className="rounded-xl border-slate-200 focus:ring-primary/20"
+                      />
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        type="button"
+                        className="rounded-xl shrink-0"
+                        onClick={() => window.open('https://consultaregistro.invima.gov.co/Consultas/consultas/consreg_encabcum.jsp', '_blank')}
+                        title="Consultar en INVIMA"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invimaExp" className="text-slate-700 font-semibold">Vencimiento INVIMA *</Label>
+                    <Input 
+                      id="invimaExp" 
+                      type="date" 
+                      value={formData.registrationExpiration ?? ""}
+                      onChange={(e) => handleChange('registrationExpiration', e.target.value)}
+                      className="rounded-xl border-slate-200 focus:ring-primary/20"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* CAMPOS EXCLUSIVOS TIC / CÓMPUTO */}
+              {formData.technologyScope === 'computing' && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Categoría de Activo TIC *</Label>
+                    <Select onValueChange={(v) => handleChange('itCategory', v)} value={formData.itCategory || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar categoría" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="Servidor">🖥️ Servidor</SelectItem>
+                        <SelectItem value="Estación de Trabajo / PC">💻 Estación de Trabajo / PC</SelectItem>
+                        <SelectItem value="Portátil / Laptop">💻 Portátil / Laptop</SelectItem>
+                        <SelectItem value="Redes (Switch/Router/AP)">🌐 Redes (Switch/Router/AP/Firewall)</SelectItem>
+                        <SelectItem value="Almacenamiento (NAS/SAN)">💾 Almacenamiento (NAS/SAN)</SelectItem>
+                        <SelectItem value="Impresora / Periférico">🖨️ Impresora / Periférico</SelectItem>
+                        <SelectItem value="Telefonía IP">📞 Telefonía IP / PBX</SelectItem>
+                        <SelectItem value="Seguridad / CCTV">📹 Seguridad / CCTV</SelectItem>
+                        <SelectItem value="Otro">📦 Otro Activo TIC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Criticidad e Impacto Asistencial *</Label>
+                    <Select onValueChange={(v) => handleChange('itCriticality', v)} value={formData.itCriticality || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar nivel de impacto" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="Crítica (Historia Clínica / UCI / Core)">🔴 Crítica (Historia Clínica / UCI / Core)</SelectItem>
+                        <SelectItem value="Media (Asistencial / Facturación)">🟡 Media (Asistencial / Facturación)</SelectItem>
+                        <SelectItem value="Baja (Administrativa)">🟢 Baja (Administrativa)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Sistema Operativo / Firmware</Label>
+                    <Input 
+                      placeholder="Ej: Windows 11 Pro, Linux Debian, Cisco IOS..." 
+                      value={formData.operatingSystem || ""}
+                      onChange={(e) => handleChange('operatingSystem', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Tipo de Conexión de Red</Label>
+                    <Select onValueChange={(v) => handleChange('networkConnection', v)} value={formData.networkConnection || "Cableado (LAN)"}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Tipo de conexión" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="Cableado (LAN)">🔌 Cableado (LAN / RJ-45)</SelectItem>
+                        <SelectItem value="Inalámbrico (Wi-Fi)">📡 Inalámbrico (Wi-Fi)</SelectItem>
+                        <SelectItem value="Fibra Óptica">💡 Fibra Óptica</SelectItem>
+                        <SelectItem value="No aplica">🚫 No aplica</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Dirección IP Asignada</Label>
+                    <Input 
+                      placeholder="Ej: 192.168.1.100 o DHCP" 
+                      value={formData.ipAddress || ""}
+                      onChange={(e) => handleChange('ipAddress', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Dirección Física (MAC)</Label>
+                    <Input 
+                      placeholder="Ej: 00:1A:2B:3C:4D:5E" 
+                      value={formData.macAddress || ""}
+                      onChange={(e) => handleChange('macAddress', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Licenciamiento de Software</Label>
+                    <Input 
+                      placeholder="Ej: Licencia OEM / Licencia Corporativa" 
+                      value={formData.licenseStatus || ""}
+                      onChange={(e) => handleChange('licenseStatus', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Software Antivirus / Seguridad</Label>
+                    <Input 
+                      placeholder="Ej: ESET Endpoint Security, Windows Defender..." 
+                      value={formData.antivirusSoftware || ""}
+                      onChange={(e) => handleChange('antivirusSoftware', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* CAMPOS EXCLUSIVOS INDUSTRIAL / INFRAESTRUCTURA */}
+              {formData.technologyScope === 'infrastructure' && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Subsistema Industrial Hospitalario *</Label>
+                    <Select onValueChange={(v) => handleChange('industrialSystem', v)} value={formData.industrialSystem || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar subsistema" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="Generación y Respaldo (Planta/UPS)">⚡ Generación y Respaldo (Planta / UPS)</SelectItem>
+                        <SelectItem value="Distribución Eléctrica">🔌 Distribución Eléctrica (Tableros / Transformador)</SelectItem>
+                        <SelectItem value="Gases Medicinales y Vacío">💨 Gases Medicinales y Vacío (Manifold / Compresores)</SelectItem>
+                        <SelectItem value="Climatización y HVAC">❄️ Climatización y HVAC (Chillers / Manejadoras)</SelectItem>
+                        <SelectItem value="Hidrosanitario y RCI">💧 Hidrosanitario y Red Contra Incendios</SelectItem>
+                        <SelectItem value="Vapor y Esterilización">🔥 Calderas, Vapor y Autoclaves</SelectItem>
+                        <SelectItem value="Otro">🏗️ Otro Subsistema Industrial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Criticidad e Impacto Operativo *</Label>
+                    <Select onValueChange={(v) => handleChange('industrialCriticality', v)} value={formData.industrialCriticality || ""}>
+                      <SelectTrigger className="rounded-xl border-slate-200">
+                        <SelectValue placeholder="Seleccionar nivel de impacto" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="Alta (Soporte Vital / Continuidad Crítica)">🔴 Alta (Soporte Vital / Quirófanos / Continuidad)</SelectItem>
+                        <SelectItem value="Media (Operativa / Servicios Generales)">🟡 Media (Operativa / Hospitalización / Esterilización)</SelectItem>
+                        <SelectItem value="Baja (Confort / Apoyo)">🟢 Baja (Confort / Áreas Administrativas)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Tensión / Voltaje de Operación</Label>
+                    <Input 
+                      placeholder="Ej: 220V Trifásico, 440V, 110V Monofásico..." 
+                      value={formData.operatingVoltage || ""}
+                      onChange={(e) => handleChange('operatingVoltage', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Capacidad / Potencia Nominal</Label>
+                    <Input 
+                      placeholder="Ej: 150 kVA, 50 HP, 60.000 BTU, 100 GPM..." 
+                      value={formData.capacityPower || ""}
+                      onChange={(e) => handleChange('capacityPower', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Combustible o Fluido de Trabajo</Label>
+                    <Input 
+                      placeholder="Ej: ACPM / Diésel, Gas Natural, R410A, Agua Helada..." 
+                      value={formData.fuelOrFluids || ""}
+                      onChange={(e) => handleChange('fuelOrFluids', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Normativa Técnica Aplicable</Label>
+                    <Input 
+                      placeholder="Ej: RETIE, NFPA 99, NTC 2050, ASME..." 
+                      value={formData.technicalNorm || ""}
+                      onChange={(e) => handleChange('technicalNorm', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">No. Dictamen RETIE / Certificado</Label>
+                    <Input 
+                      placeholder="Ej: DICTAMEN-RETIE-2023-0491" 
+                      value={formData.certCertificateNumber || ""}
+                      onChange={(e) => handleChange('certCertificateNumber', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Áreas Hospitalarias que Alimenta</Label>
+                    <Input 
+                      placeholder="Ej: Toda la UCI Adultos, Quirófanos y Urgencias..." 
+                      value={formData.coverageArea || ""}
+                      onChange={(e) => handleChange('coverageArea', e.target.value)}
+                      className="rounded-xl border-slate-200"
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="space-y-4 md:col-span-2">
-                <Label className="text-slate-700 font-semibold">Manual de Usuario</Label>
+                <Label className="text-slate-700 font-semibold">
+                  {formData.technologyScope === 'computing'
+                    ? 'Manual / Guía Técnica de Configuración'
+                    : formData.technologyScope === 'infrastructure'
+                    ? 'Manual de Operación y Mantenimiento'
+                    : 'Manual de Usuario'}
+                </Label>
                 
                 <div className="flex gap-2">
                   <Input 
@@ -640,14 +1004,27 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
                 </div>
                 {manualFile && <p className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-1"><CheckCircle2 className="h-3 w-3" /> Archivo seleccionado: {manualFile.name} (se subirá a Drive)</p>}
               </div>
+
               <div className="space-y-2 md:col-span-2">
-                <Label className="text-slate-700 font-semibold">Protocolo de Limpieza</Label>
+                <Label className="text-slate-700 font-semibold">
+                  {formData.technologyScope === 'computing'
+                    ? 'Políticas de Seguridad y Respaldo TIC'
+                    : formData.technologyScope === 'infrastructure'
+                    ? 'Protocolo de Operación en Contingencia'
+                    : 'Protocolo de Limpieza'}
+                </Label>
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="bg-white p-3 rounded-xl shadow-sm">
                     <ShieldCheck className="h-6 w-6 text-emerald-600" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-slate-900">Adjuntar Protocolo</p>
+                    <p className="text-sm font-bold text-slate-900">
+                      {formData.technologyScope === 'computing'
+                        ? 'Adjuntar Documento de Políticas / Arquitectura'
+                        : formData.technologyScope === 'infrastructure'
+                        ? 'Adjuntar Protocolo de Contingencia'
+                        : 'Adjuntar Protocolo'}
+                    </p>
                     <p className="text-[10px] text-slate-500 uppercase font-bold">PDF / Imagen (Se enviará al Drive)</p>
                   </div>
                   <input type="file" className="hidden" id="protocol-upload" accept=".pdf,image/*" onChange={(e) => {
@@ -704,46 +1081,57 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
                   className="rounded-xl border-slate-200 focus:ring-primary/20"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="calibFreq" className="text-slate-700 font-semibold">Frecuencia Calib. (Meses)</Label>
-                <Input 
-                  id="calibFreq" 
-                  type="number" 
-                  value={formData.calibrationFrequency || ""}
-                  onChange={(e) => handleChange('calibrationFrequency', e.target.value ? parseInt(e.target.value) : '')}
-                  className="rounded-xl border-slate-200 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastCalib" className="text-slate-700 font-semibold">Última Calibración</Label>
-                <Input 
-                  id="lastCalib" 
-                  type="date" 
-                  value={formData.lastCalibration ?? ""}
-                  onChange={(e) => handleChange('lastCalibration', e.target.value)}
-                  className="rounded-xl border-slate-200 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="qualFreq" className="text-slate-700 font-semibold">Frecuencia Calific. (Meses)</Label>
-                <Input 
-                  id="qualFreq" 
-                  type="number" 
-                  value={formData.qualificationFrequency || ""}
-                  onChange={(e) => handleChange('qualificationFrequency', e.target.value ? parseInt(e.target.value) : '')}
-                  className="rounded-xl border-slate-200 focus:ring-primary/20"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastQual" className="text-slate-700 font-semibold">Última Calificación</Label>
-                <Input 
-                  id="lastQual" 
-                  type="date" 
-                  value={formData.lastQualification ?? ""}
-                  onChange={(e) => handleChange('lastQualification', e.target.value)}
-                  className="rounded-xl border-slate-200 focus:ring-primary/20"
-                />
-              </div>
+              {formData.technologyScope !== 'computing' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="calibFreq" className="text-slate-700 font-semibold">Frecuencia Calib. (Meses)</Label>
+                    <Input 
+                      id="calibFreq" 
+                      type="number" 
+                      value={formData.calibrationFrequency || ""}
+                      onChange={(e) => handleChange('calibrationFrequency', e.target.value ? parseInt(e.target.value) : '')}
+                      className="rounded-xl border-slate-200 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastCalib" className="text-slate-700 font-semibold">Última Calibración</Label>
+                    <Input 
+                      id="lastCalib" 
+                      type="date" 
+                      value={formData.lastCalibration ?? ""}
+                      onChange={(e) => handleChange('lastCalibration', e.target.value)}
+                      className="rounded-xl border-slate-200 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="qualFreq" className="text-slate-700 font-semibold">Frecuencia Calific. (Meses)</Label>
+                    <Input 
+                      id="qualFreq" 
+                      type="number" 
+                      value={formData.qualificationFrequency || ""}
+                      onChange={(e) => handleChange('qualificationFrequency', e.target.value ? parseInt(e.target.value) : '')}
+                      className="rounded-xl border-slate-200 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastQual" className="text-slate-700 font-semibold">Última Calificación</Label>
+                    <Input 
+                      id="lastQual" 
+                      type="date" 
+                      value={formData.lastQualification ?? ""}
+                      onChange={(e) => handleChange('lastQualification', e.target.value)}
+                      className="rounded-xl border-slate-200 focus:ring-primary/20"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2 md:col-span-2 p-4 bg-indigo-50/60 border border-indigo-100 rounded-2xl flex items-center gap-3">
+                  <Laptop className="h-5 w-5 text-indigo-600 shrink-0" />
+                  <p className="text-xs text-indigo-900 font-medium">
+                    Los equipos de Cómputo (TIC) no requieren calibración metrológica ni calificación física; su confiabilidad y continuidad se garantizan a través de los ciclos de mantenimiento preventivo, limpieza física y actualizaciones de seguridad.
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="location" className="text-slate-700 font-semibold">Ubicación Específica</Label>
                 <Input 
@@ -799,7 +1187,11 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
                     const file = e.target.files?.[0];
                     if (file) {
                       if (file.size > 10 * 1024 * 1024) {
-                        alert("El archivo es demasiado grande (Máximo 10MB individual). Por favor use archivos más ligeros.");
+                        setFeedback({
+                          title: 'Archivo Demasiado Grande',
+                          message: 'El archivo excede los 10MB individuales permitidos. Por favor use un archivo más ligero.',
+                          type: 'error'
+                        });
                         return;
                       }
                       setAnnexes(prev => [...prev, { name: file.name, url: '#', file }]);
@@ -815,65 +1207,153 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
             <div className="flex items-center gap-2 text-primary font-bold text-sm uppercase tracking-wider">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white text-[10px]">5</span>
-              Características Técnicas
+              {(formData.technologyScope || 'biomedical') === 'biomedical'
+                ? 'Características Técnicas Biomédicas'
+                : formData.technologyScope === 'computing'
+                ? 'Especificaciones y Arquitectura TIC'
+                : 'Características Operativas Industriales'}
             </div>
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label className="text-slate-700 font-semibold">Tipo de Equipo *</Label>
+                <Label className="text-slate-700 font-semibold">
+                  {formData.technologyScope === 'computing'
+                    ? 'Formato de Instalación / Tipo *'
+                    : formData.technologyScope === 'infrastructure'
+                    ? 'Tipo de Montaje / Instalación *'
+                    : 'Tipo de Equipo *'}
+                </Label>
                 <Select onValueChange={(v) => handleChange('equipmentType', v)} value={formData.equipmentType || ""}>
                   <SelectTrigger className="rounded-xl border-slate-200">
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
-                    <SelectItem value="Fijo">Fijo</SelectItem>
-                    <SelectItem value="Móvil">Móvil</SelectItem>
+                    {(formData.technologyScope || 'biomedical') === 'biomedical' ? (
+                      <>
+                        <SelectItem value="Fijo">Fijo</SelectItem>
+                        <SelectItem value="Móvil">Móvil</SelectItem>
+                      </>
+                    ) : formData.technologyScope === 'computing' ? (
+                      <>
+                        <SelectItem value="Rack / Servidor">Rack / Servidor</SelectItem>
+                        <SelectItem value="Fijo">Estación Fija / Escritorio</SelectItem>
+                        <SelectItem value="Portátil">Portátil / Laptop</SelectItem>
+                        <SelectItem value="Móvil">Móvil / Terminal</SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="Fijo">Fijo / Centralizado</SelectItem>
+                        <SelectItem value="Móvil">Móvil / Standalone</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 font-semibold">Tecnología Predominante *</Label>
-                <Select onValueChange={(v) => handleChange('predominantTechnology', v)} value={formData.predominantTechnology || ""}>
-                  <SelectTrigger className="rounded-xl border-slate-200">
-                    <SelectValue placeholder="Seleccionar" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="Mecánico">Mecánico</SelectItem>
-                    <SelectItem value="Electrónico">Electrónico</SelectItem>
-                    <SelectItem value="Eléctrico">Eléctrico</SelectItem>
-                    <SelectItem value="Hidráulico">Hidráulico</SelectItem>
-                    <SelectItem value="Neumático">Neumático</SelectItem>
-                    <SelectItem value="Otro">Otro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 font-semibold">Clasif. Biomédica</Label>
-                <Select onValueChange={(v) => handleChange('biomedicalClassification', v)} value={formData.biomedicalClassification || ""}>
-                  <SelectTrigger className="rounded-xl border-slate-200">
-                    <SelectValue placeholder="Seleccionar" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="Rehabilitación">Rehabilitación</SelectItem>
-                    <SelectItem value="Prevención">Prevención</SelectItem>
-                    <SelectItem value="Tratamiento">Tratamiento</SelectItem>
-                    <SelectItem value="Diagnóstico">Diagnóstico</SelectItem>
-                    <SelectItem value="Análisis de Lab">Análisis de Lab</SelectItem>
-                    <SelectItem value="Otro">Otro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+              {/* Tecnología Predominante (Biomédica e Industrial) */}
+              {(formData.technologyScope || 'biomedical') !== 'computing' && (
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Tecnología Predominante *</Label>
+                  <Select onValueChange={(v) => handleChange('predominantTechnology', v)} value={formData.predominantTechnology || ""}>
+                    <SelectTrigger className="rounded-xl border-slate-200">
+                      <SelectValue placeholder="Seleccionar" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="Electromecánico">Electromecánico</SelectItem>
+                      <SelectItem value="Eléctrico">Eléctrico</SelectItem>
+                      <SelectItem value="Electrónico">Electrónico</SelectItem>
+                      <SelectItem value="Mecánico">Mecánico</SelectItem>
+                      <SelectItem value="Hidráulico">Hidráulico</SelectItem>
+                      <SelectItem value="Neumático">Neumático</SelectItem>
+                      <SelectItem value="Óptico">Óptico</SelectItem>
+                      <SelectItem value="Otro">Otro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* CAMPOS ESPECÍFICOS TIC EN STEP 5 */}
+              {formData.technologyScope === 'computing' && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Procesador (CPU)</Label>
+                    <Input 
+                      placeholder="Ej: Intel Core i7-12700 / AMD Ryzen 7 / Xeon" 
+                      value={formData.processor || ""} 
+                      onChange={(e) => handleChange('processor', e.target.value)} 
+                      className="rounded-xl border-slate-200" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Memoria RAM</Label>
+                    <Input 
+                      placeholder="Ej: 16 GB DDR4 / 32 GB DDR5" 
+                      value={formData.ramMemory || ""} 
+                      onChange={(e) => handleChange('ramMemory', e.target.value)} 
+                      className="rounded-xl border-slate-200" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">Capacidad de Disco / Almacenamiento</Label>
+                    <Input 
+                      placeholder="Ej: 512 GB SSD NVMe + 1 TB HDD" 
+                      value={formData.storageCapacity || ""} 
+                      onChange={(e) => handleChange('storageCapacity', e.target.value)} 
+                      className="rounded-xl border-slate-200" 
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Clasificación Biomédica: SOLO BIOMÉDICA */}
+              {(formData.technologyScope || 'biomedical') === 'biomedical' && (
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Clasif. Biomédica</Label>
+                  <Select onValueChange={(v) => handleChange('biomedicalClassification', v)} value={formData.biomedicalClassification || ""}>
+                    <SelectTrigger className="rounded-xl border-slate-200">
+                      <SelectValue placeholder="Seleccionar" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="Rehabilitación">Rehabilitación</SelectItem>
+                      <SelectItem value="Prevención">Prevención</SelectItem>
+                      <SelectItem value="Tratamiento">Tratamiento</SelectItem>
+                      <SelectItem value="Diagnóstico">Diagnóstico</SelectItem>
+                      <SelectItem value="Análisis de Lab">Análisis de Lab</SelectItem>
+                      <SelectItem value="Otro">Otro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label className="text-slate-700 font-semibold">Fuente de Alimentación</Label>
-                <Input placeholder="Ej: Electricidad, Batería..." value={formData.powerSupply || ""} onChange={(e) => handleChange('powerSupply', e.target.value)} className="rounded-xl border-slate-200" />
+                <Input placeholder="Ej: Red Comercial 110V/220V, UPS, Batería..." value={formData.powerSupply || ""} onChange={(e) => handleChange('powerSupply', e.target.value)} className="rounded-xl border-slate-200" />
               </div>
               <div className="space-y-2">
                 <Label className="text-slate-700 font-semibold">Dimensiones</Label>
-                <Input placeholder="Ej: 140 x 193 x 95 mm" value={formData.dimensions || ""} onChange={(e) => handleChange('dimensions', e.target.value)} className="rounded-xl border-slate-200" />
+                <Input placeholder="Ej: 140 x 193 x 95 mm / 2U Rack" value={formData.dimensions || ""} onChange={(e) => handleChange('dimensions', e.target.value)} className="rounded-xl border-slate-200" />
               </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label className="text-slate-700 font-semibold">Principio Fisiológico de Funcionamiento</Label>
-                <Textarea placeholder="Describa el uso y principio..." value={formData.physiologicalPrinciple || ""} onChange={(e) => handleChange('physiologicalPrinciple', e.target.value)} className="rounded-xl border-slate-200" />
-              </div>
+
+              {/* DESCRIPCIÓN DE IMPACTO SEGÚN TECNOLOGÍA */}
+              {(formData.technologyScope || 'biomedical') === 'biomedical' && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-slate-700 font-semibold">Principio Fisiológico de Funcionamiento / Uso Clínico</Label>
+                  <Textarea placeholder="Describa el principio fisiológico y uso clínico en el paciente..." value={formData.physiologicalPrinciple || ""} onChange={(e) => handleChange('physiologicalPrinciple', e.target.value)} className="rounded-xl border-slate-200" />
+                </div>
+              )}
+
+              {formData.technologyScope === 'computing' && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-slate-700 font-semibold">Rol Asistencial / Impacto en la Operación Hospitalaria</Label>
+                  <Textarea placeholder="Describa la función o impacto asistencial del equipo TIC (ej: Registro clínico de evolución de pacientes en UCI, estación de enfermería, servidor PACS)..." value={formData.functionalRole || ""} onChange={(e) => handleChange('functionalRole', e.target.value)} className="rounded-xl border-slate-200" />
+                </div>
+              )}
+
+              {formData.technologyScope === 'infrastructure' && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-slate-700 font-semibold">Descripción Funcional y Operación en Modo Contingencia</Label>
+                  <Textarea placeholder="Describa el funcionamiento industrial y modo de respuesta ante corte o contingencia (ej: Conmutación automática ante corte de energía comercial en menos de 10s para soporte de vida)..." value={formData.functionalDescription || ""} onChange={(e) => handleChange('functionalDescription', e.target.value)} className="rounded-xl border-slate-200" />
+                </div>
+              )}
             </div>
             
             <h4 className="font-bold text-slate-800 border-b pb-2 mt-4 text-sm uppercase">Especificaciones</h4>
@@ -1032,6 +1512,17 @@ export default function EquipmentForm({ onCancel, initialData, onSuccess }: Equi
           )}
         </Button>
       </CardFooter>
+
+      {/* In-app feedback modal */}
+      {feedback && (
+        <FeedbackModal
+          isOpen={!!feedback}
+          onClose={() => setFeedback(null)}
+          title={feedback.title}
+          message={feedback.message}
+          type={feedback.type}
+        />
+      )}
     </Card>
   );
 }

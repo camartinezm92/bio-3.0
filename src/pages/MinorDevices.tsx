@@ -34,6 +34,7 @@ import {
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { MinorDevice, MinorDeviceReport, Service } from '@/types';
 import { useAuth } from '@/lib/AuthContext';
+import { useTechnologyScope, SCOPES_CONFIG } from '@/lib/TechnologyScopeContext';
 import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -81,6 +82,7 @@ import {
 export default function MinorDevices() {
   const { user } = useAuth();
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
+  const { scope, scopeConfig } = useTechnologyScope();
 
   // State Lists
   const [devices, setDevices] = React.useState<MinorDevice[]>([]);
@@ -88,6 +90,15 @@ export default function MinorDevices() {
   const [loading, setLoading] = React.useState(true);
   const [reports, setReports] = React.useState<MinorDeviceReport[]>([]);
   const [loadingReports, setLoadingReports] = React.useState(false);
+
+  // Scoped Devices based on active technology area
+  const scopedDevices = React.useMemo(() => {
+    if (scope === 'all') return devices;
+    return devices.filter(device => {
+      const itemScope = (device as any).technologyScope || 'biomedical';
+      return itemScope === scope;
+    });
+  }, [devices, scope]);
 
   // Filter States
   const [activeTab, setActiveTab] = React.useState<'dispositivo_menor' | 'instrumental'>('dispositivo_menor');
@@ -109,9 +120,10 @@ export default function MinorDevices() {
   const [formTab, setFormTab] = React.useState<'basico' | 'regulatorio' | 'tecnico' | 'proveedor' | 'mantenimiento'>('basico');
 
   // New/Edit Form Values
-  const [formData, setFormData] = React.useState<Partial<MinorDevice>>({
+  const [formData, setFormData] = React.useState<Partial<MinorDevice & { technologyScope?: string }>>({
     name: '',
     type: 'dispositivo_menor',
+    technologyScope: scope === 'all' ? 'biomedical' : scope,
     brand: '',
     model: '',
     serial: '',
@@ -224,7 +236,10 @@ export default function MinorDevices() {
       const snap = await getDocs(q);
       const list: any[] = [];
       snap.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() });
+        const d = { id: docSnap.id, ...docSnap.data() } as any;
+        if (scope === 'all' || (d.technologyScope || 'biomedical') === scope) {
+          list.push(d);
+        }
       });
       setPastInventories(list);
     } catch (err) {
@@ -242,7 +257,7 @@ export default function MinorDevices() {
   }, [showInventoryModal]);
 
   const handleOpenInventoryModal = () => {
-    const instrumentalItems = devices.filter(d => d.type !== 'dispositivo_menor');
+    const instrumentalItems = scopedDevices.filter(d => d.type !== 'dispositivo_menor');
     const initialCounts: Record<string, number> = {};
     instrumentalItems.forEach(item => {
       initialCounts[item.id] = item.quantity;
@@ -265,7 +280,7 @@ export default function MinorDevices() {
   const handleSaveInventory = async () => {
     setSavingInventory(true);
     try {
-      const instrumentalItems = devices.filter(d => d.type !== 'dispositivo_menor');
+      const instrumentalItems = scopedDevices.filter(d => d.type !== 'dispositivo_menor');
       
       const inventoryItems = instrumentalItems.map(item => {
         const physicalQty = physicalCounts[item.id] !== undefined ? Number(physicalCounts[item.id]) : 0;
@@ -284,6 +299,7 @@ export default function MinorDevices() {
 
       const newInventory = {
         date: inventoryDate,
+        technologyScope: scope === 'all' ? 'biomedical' : scope,
         performedBy: user?.uid || 'Unknown',
         performedByName: performedByName || user?.displayName || user?.email || 'Usuario',
         performedBySignature: getSignatureData(inventoryPerformedSigRef),
@@ -562,6 +578,7 @@ export default function MinorDevices() {
     setFormData({
       name: '',
       type: activeTab === 'dispositivo_menor' ? 'dispositivo_menor' : 'instrumental',
+      technologyScope: scope === 'all' ? 'biomedical' : scope,
       brand: '',
       model: '',
       serial: '',
@@ -628,6 +645,7 @@ export default function MinorDevices() {
     setFormTab('basico');
     setFormData({
       ...device,
+      technologyScope: (device as any).technologyScope || 'biomedical',
       technicalCharacteristics: {
         voltage: '',
         amperage: '',
@@ -662,6 +680,7 @@ export default function MinorDevices() {
     setFormTab('basico');
     setFormData({
       ...device,
+      technologyScope: (device as any).technologyScope || (scope === 'all' ? 'biomedical' : scope),
       serial: '',
       assetNumber: '',
       technicalCharacteristics: {
@@ -871,6 +890,10 @@ export default function MinorDevices() {
       rawDevice.nextCalibration = lastCalDate.toISOString().split('T')[0];
     }
 
+    if (!rawDevice.technologyScope) {
+      rawDevice.technologyScope = (scope === 'all' ? 'biomedical' : scope);
+    }
+
     const resolvedDevice = cleanObjectForFirestore(rawDevice);
 
     try {
@@ -968,8 +991,58 @@ export default function MinorDevices() {
     }
   };
 
+  // Scope details configuration for dynamic terminology
+  const scopeDetails = React.useMemo(() => {
+    switch (scope) {
+      case 'computing':
+        return {
+          title: 'Periféricos y Accesorios Menores',
+          subtitle: 'Cómputo y TIC',
+          description: 'Control y trazabilidad de periféricos, componentes de red, adaptadores, docking stations, accesorios y tecnologías menores de sistemas.',
+          tab1: 'Periféricos y Accesorios Menores',
+          tab2: 'Kits de Red y Repuestos',
+          stat1: 'Periféricos / Accesorios',
+          stat2: 'Kits y Repuestos',
+          invControlBtn: 'CONTROL DE KITS Y REPUESTOS'
+        };
+      case 'infrastructure':
+        return {
+          title: 'Equipos Menores y Herramientas',
+          subtitle: 'Infraestructura',
+          description: 'Gestión y control de instrumentos menores, manómetros, multímetros, valvulería menor, termómetros industriales y herramientas.',
+          tab1: 'Instrumentos y Medidores Menores',
+          tab2: 'Kits de Herramientas y Repuestos',
+          stat1: 'Instrumentos / Equipos',
+          stat2: 'Kits de Herramientas',
+          invControlBtn: 'CONTROL DE KITS Y HERRAMIENTAS'
+        };
+      case 'all':
+        return {
+          title: 'Dispositivos Menores y Accesorios',
+          subtitle: 'Consolidado Global',
+          description: 'Vista transversal de todas las tecnologías menores, instrumental y periféricos institucionales.',
+          tab1: 'Dispositivos y Periféricos Menores',
+          tab2: 'Instrumental, Kits y Herramientas',
+          stat1: 'Dispositivos / Periféricos',
+          stat2: 'Instrumental y Kits',
+          invControlBtn: 'CONTROL DE INVENTARIO'
+        };
+      default: // biomedical
+        return {
+          title: 'Dispositivos Menores e Instrumental',
+          subtitle: 'Tecnología Biomédica',
+          description: 'Gestión simplificada, hojas de vida y control de mantenimiento de tecnologías menores, instrumental quirúrgico, textiles y kits de rotación.',
+          tab1: 'Glucómetros / Termohigrómetros y Equipos Menores',
+          tab2: 'Instrumental, Ropa y Kits de Rotación',
+          stat1: 'Dispositivos Menores',
+          stat2: 'Instrumental y Textiles',
+          invControlBtn: 'CONTROL DE INVENTARIO'
+        };
+    }
+  }, [scope]);
+
   // Filters application
-  const filteredDevices = devices.filter((device) => {
+  const filteredDevices = scopedDevices.filter((device) => {
     // 1. Filter by Tab
     if (activeTab === 'dispositivo_menor') {
       if (device.type !== 'dispositivo_menor') return false;
@@ -997,14 +1070,14 @@ export default function MinorDevices() {
     return matchesSearch && matchesService && matchesStatus;
   });
 
-  // Calculate stats
-  const totalTechnology = devices.filter(d => d.type === 'dispositivo_menor').length;
-  const totalInstrumentalItems = devices
+  // Calculate stats based strictly on scoped devices
+  const totalTechnology = scopedDevices.filter(d => d.type === 'dispositivo_menor').length;
+  const totalInstrumentalItems = scopedDevices
     .filter(d => d.type !== 'dispositivo_menor')
     .reduce((acc, d) => acc + (d.quantity || 0), 0);
 
   // Maintenance alarm checks
-  const needsMaintenanceSoon = devices.filter(d => {
+  const needsMaintenanceSoon = scopedDevices.filter(d => {
     if (!d.nextMaintenance || d.status === 'baja') return false;
     const nextDate = new Date(d.nextMaintenance);
     const today = new Date();
@@ -1013,8 +1086,8 @@ export default function MinorDevices() {
     return diffDays <= 30; // Within 30 days
   }).length;
 
-  // Calibration alarm checks (mainly for glucometers/thermohygrometers)
-  const needsCalibrationSoon = devices.filter(d => {
+  // Calibration alarm checks
+  const needsCalibrationSoon = scopedDevices.filter(d => {
     if (!d.nextCalibration || d.status === 'baja') return false;
     const nextDate = new Date(d.nextCalibration);
     const today = new Date();
@@ -1054,11 +1127,16 @@ export default function MinorDevices() {
       {/* Upper Section */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
           <h1 className="text-4xl font-black tracking-tight text-slate-900 uppercase">
-            Dispositivos e Instrumental
+            {scopeDetails.title}
           </h1>
           <p className="text-slate-500 font-bold mt-1 text-sm md:text-base max-w-3xl">
-            Gestión simplificada, hojas de vida y control de mantenimiento de tecnologías menores, instrumental quirúrgico, textiles y kits de rotación.
+            {scopeDetails.description}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -1067,7 +1145,7 @@ export default function MinorDevices() {
             className="rounded-[1.25rem] h-12 px-6 font-black tracking-wide shadow-lg shadow-emerald-600/10 bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2"
           >
             <Clipboard className="h-5 w-5" />
-            CONTROL DE INVENTARIO
+            {scopeDetails.invControlBtn}
           </Button>
           <Button 
             onClick={openAddModal}
@@ -1088,7 +1166,7 @@ export default function MinorDevices() {
               <Activity className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Dispositivos Menores</p>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-wider">{scopeDetails.stat1}</p>
               <h3 className="text-2xl font-black text-slate-800 mt-1">{totalTechnology} <span className="text-xs text-slate-400 font-normal">unidades</span></h3>
             </div>
           </CardContent>
@@ -1101,7 +1179,7 @@ export default function MinorDevices() {
               <Layers className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Instrumental y Textiles</p>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-wider">{scopeDetails.stat2}</p>
               <h3 className="text-2xl font-black text-slate-800 mt-1">{totalInstrumentalItems} <span className="text-xs text-slate-400 font-normal">piezas</span></h3>
             </div>
           </CardContent>
@@ -1161,7 +1239,7 @@ export default function MinorDevices() {
           >
             <span className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Glucómetros / Termohigrómetros y Equipos Menores
+              {scopeDetails.tab1}
             </span>
           </button>
           <button
@@ -1175,7 +1253,7 @@ export default function MinorDevices() {
           >
             <span className="flex items-center gap-2">
               <Package className="h-4 w-4" />
-              Instrumental, Ropa y Kits de Rotación
+              {scopeDetails.tab2}
             </span>
           </button>
         </div>
@@ -1233,11 +1311,18 @@ export default function MinorDevices() {
               <Package className="h-10 w-10" />
             </div>
             <div>
-              <h4 className="text-lg font-black text-slate-800">No se encontraron registros</h4>
-              <p className="text-slate-500 font-semibold text-sm mt-1">Intente cambiando los filtros de búsqueda o cree un nuevo registro.</p>
+              <h4 className="text-lg font-black text-slate-800">
+                {scopedDevices.length === 0 ? `Sin registros en ${scopeConfig.label}` : 'No se encontraron registros'}
+              </h4>
+              <p className="text-slate-500 font-semibold text-sm mt-1 max-w-md mx-auto">
+                {scopedDevices.length === 0
+                  ? `Aún no hay registros menores para el área de ${scopeConfig.label}. Haz clic en el botón para agregar el primero.`
+                  : 'Intente cambiando los filtros de búsqueda o el servicio seleccionado.'}
+              </p>
             </div>
-            <Button onClick={openAddModal} variant="outline" className="rounded-xl font-bold">
-              Agregar primer registro
+            <Button onClick={openAddModal} variant="default" className="rounded-xl font-bold">
+              <Plus className="mr-1.5 h-4 w-4" />
+              Agregar a {scopeConfig.shortLabel}
             </Button>
           </div>
         ) : (
@@ -1257,9 +1342,16 @@ export default function MinorDevices() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
-                        <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest text-primary border-primary/20 bg-primary/5 rounded-lg">
-                          {getCategoryLabel(device.type)}
-                        </Badge>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant="outline" className="text-[10px] uppercase font-black tracking-widest text-primary border-primary/20 bg-primary/5 rounded-lg">
+                            {getCategoryLabel(device.type)}
+                          </Badge>
+                          {scope === 'all' && (
+                            <Badge variant="secondary" className="text-[9px] font-bold rounded-lg border">
+                              {(device as any).technologyScope === 'computing' ? 'Cómputo TIC' : (device as any).technologyScope === 'infrastructure' ? 'Infraestructura' : 'Biomédica'}
+                            </Badge>
+                          )}
+                        </div>
                         <h3 className="text-lg font-black text-slate-900 leading-tight group-hover:text-primary transition-colors">
                           {device.name}
                         </h3>
@@ -1454,7 +1546,11 @@ export default function MinorDevices() {
               )}
             >
               <ShieldCheck className="h-3.5 w-3.5" />
-              2. INVIMA & Legal
+              {(formData.technologyScope || 'biomedical') === 'biomedical' 
+                ? '2. INVIMA & Legal' 
+                : formData.technologyScope === 'computing' 
+                ? '2. Impacto & Red TIC' 
+                : '2. Normativa & RETIE'}
             </button>
 
             <button
@@ -1499,6 +1595,19 @@ export default function MinorDevices() {
             {formTab === 'basico' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="space-y-1.5 md:col-span-2">
+                  <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Área Tecnológica</Label>
+                  <select
+                    value={formData.technologyScope || (scope === 'all' ? 'biomedical' : scope)}
+                    onChange={(e) => setFormData(prev => ({ ...prev, technologyScope: e.target.value as any }))}
+                    className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="biomedical">🩺 Tecnología Biomédica (Equipos Menores Clínicos e Instrumental)</option>
+                    <option value="computing">💻 Cómputo y TIC (Periféricos, Redes, Adaptadores y Accesorios)</option>
+                    <option value="infrastructure">⚡ Infraestructura (Instrumentos Menores, Manómetros, Herramientas)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5 md:col-span-2">
                   <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Tipo de Tecnología / Recurso</Label>
                   <select
                     value={formData.type}
@@ -1509,11 +1618,27 @@ export default function MinorDevices() {
                     }))}
                     className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    <option value="dispositivo_menor">Dispositivo Médico Menor (Glucómetro, Tensiómetro, Fonendoscopio, etc.)</option>
-                    <option value="instrumental">Instrumental Quirúrgico (Pinzas, Tijeras, Mangos, Separadores, etc.)</option>
-                    <option value="ropa">Ropa de Cirugía (Camisones, Sábanas, Campos, etc.)</option>
-                    <option value="manta">Mantas para Esterilizar</option>
-                    <option value="kit_rotacion">Kit de Cirugía de Rotación Rápida</option>
+                    {(formData.technologyScope === 'computing') ? (
+                      <>
+                        <option value="dispositivo_menor">Periférico Menor (Teclado, Mouse, Lector Código Barras, Hub USB, Docking, etc.)</option>
+                        <option value="instrumental">Kit de Red, Cableado o Herramientas TIC (Patch cords, crimpeadora, tester)</option>
+                        <option value="kit_rotacion">Kit de Rotación Rápida / Repuestos TIC</option>
+                      </>
+                    ) : (formData.technologyScope === 'infrastructure') ? (
+                      <>
+                        <option value="dispositivo_menor">Instrumento Menor / Medidor (Manómetro, Multímetro, Termómetro Industrial)</option>
+                        <option value="instrumental">Juego de Herramientas Menores / Valvulería</option>
+                        <option value="kit_rotacion">Kit de Repuestos / Conexiones Rápidas</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="dispositivo_menor">Dispositivo Médico Menor (Glucómetro, Tensiómetro, Fonendoscopio, etc.)</option>
+                        <option value="instrumental">Instrumental Quirúrgico (Pinzas, Tijeras, Mangos, Separadores, etc.)</option>
+                        <option value="ropa">Ropa de Cirugía (Camisones, Sábanas, Campos, etc.)</option>
+                        <option value="manta">Mantas para Esterilizar</option>
+                        <option value="kit_rotacion">Kit de Cirugía de Rotación Rápida</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -1647,74 +1772,148 @@ export default function MinorDevices() {
               </div>
             )}
 
-            {/* TAB 2: INVIMA & REGULATORIO */}
+            {/* TAB 2: INVIMA & REGULATORIO / IMPACTO */}
             {formTab === 'regulatorio' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="registrationInvima" className="font-black text-slate-700 text-xs uppercase tracking-wider">Registro Sanitario INVIMA</Label>
-                  <Input 
-                    id="registrationInvima" 
-                    value={formData.registrationInvima || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, registrationInvima: e.target.value }))}
-                    placeholder="Ej: INVIMA 2021DM-0021300 o NO REQUIERE"
-                    className="h-11 rounded-xl border-slate-200 font-bold"
-                  />
-                </div>
+                {(formData.technologyScope || 'biomedical') === 'biomedical' ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="registrationInvima" className="font-black text-slate-700 text-xs uppercase tracking-wider">Registro Sanitario INVIMA</Label>
+                      <Input 
+                        id="registrationInvima" 
+                        value={formData.registrationInvima || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, registrationInvima: e.target.value }))}
+                        placeholder="Ej: INVIMA 2021DM-0021300 o NO REQUIERE"
+                        className="h-11 rounded-xl border-slate-200 font-bold"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="registrationExpiration" className="font-black text-slate-700 text-xs uppercase tracking-wider">Vencimiento Registro INVIMA</Label>
-                  <Input 
-                    id="registrationExpiration" 
-                    type="date"
-                    value={formData.registrationExpiration || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, registrationExpiration: e.target.value }))}
-                    className="h-11 rounded-xl border-slate-200 font-bold"
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="registrationExpiration" className="font-black text-slate-700 text-xs uppercase tracking-wider">Vencimiento Registro INVIMA</Label>
+                      <Input 
+                        id="registrationExpiration" 
+                        type="date"
+                        value={formData.registrationExpiration || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, registrationExpiration: e.target.value }))}
+                        className="h-11 rounded-xl border-slate-200 font-bold"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Clasificación de Riesgo</Label>
-                  <select
-                    value={formData.riskClass || 'I'}
-                    onChange={(e) => setFormData(prev => ({ ...prev, riskClass: e.target.value as any }))}
-                    className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
-                  >
-                    <option value="I">Clase I - Bajo Riesgo (Instrumental, Tensión, Glucómetro)</option>
-                    <option value="IIa">Clase IIa - Riesgo Moderado</option>
-                    <option value="IIb">Clase IIb - Riesgo Alto</option>
-                    <option value="III">Clase III - Muy Alto Riesgo / Vital</option>
-                  </select>
-                </div>
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Clasificación de Riesgo</Label>
+                      <select
+                        value={formData.riskClass || 'I'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, riskClass: e.target.value as any }))}
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
+                      >
+                        <option value="I">Clase I - Bajo Riesgo (Instrumental, Tensión, Glucómetro)</option>
+                        <option value="IIa">Clase IIa - Riesgo Moderado</option>
+                        <option value="IIb">Clase IIb - Riesgo Alto</option>
+                        <option value="III">Clase III - Muy Alto Riesgo / Vital</option>
+                      </select>
+                    </div>
 
-                <div className="space-y-1.5">
-                  <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Tipo Biomédico</Label>
-                  <select
-                    value={formData.biomedicalType || 'support'}
-                    onChange={(e) => setFormData(prev => ({ ...prev, biomedicalType: e.target.value as any }))}
-                    className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
-                  >
-                    <option value="support">Soporte Vital / Apoyo Diagnóstico</option>
-                    <option value="diagnostic">Diagnóstico</option>
-                    <option value="treatment">Tratamiento / Quirúrgico</option>
-                    <option value="rehabilitation">Rehabilitación</option>
-                  </select>
-                </div>
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Tipo Biomédico</Label>
+                      <select
+                        value={formData.biomedicalType || 'support'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, biomedicalType: e.target.value as any }))}
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
+                      >
+                        <option value="support">Soporte Vital / Apoyo Diagnóstico</option>
+                        <option value="diagnostic">Diagnóstico</option>
+                        <option value="treatment">Tratamiento / Quirúrgico</option>
+                        <option value="rehabilitation">Rehabilitación</option>
+                      </select>
+                    </div>
 
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Clasificación Biomédica</Label>
-                  <select
-                    value={formData.biomedicalClassification || 'Otro'}
-                    onChange={(e) => setFormData(prev => ({ ...prev, biomedicalClassification: e.target.value as any }))}
-                    className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
-                  >
-                    <option value="Tratamiento">Tratamiento y Quirúrgico</option>
-                    <option value="Diagnóstico">Diagnóstico</option>
-                    <option value="Prevención">Prevención y Control</option>
-                    <option value="Rehabilitación">Rehabilitación</option>
-                    <option value="Análisis de Lab">Análisis de Laboratorio</option>
-                    <option value="Otro">Otro / Apoyo Clínico</option>
-                  </select>
-                </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Clasificación Biomédica</Label>
+                      <select
+                        value={formData.biomedicalClassification || 'Otro'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, biomedicalClassification: e.target.value as any }))}
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
+                      >
+                        <option value="Tratamiento">Tratamiento y Quirúrgico</option>
+                        <option value="Diagnóstico">Diagnóstico</option>
+                        <option value="Prevención">Prevención y Control</option>
+                        <option value="Rehabilitación">Rehabilitación</option>
+                        <option value="Análisis de Lab">Análisis de Laboratorio</option>
+                        <option value="Otro">Otro / Apoyo Clínico</option>
+                      </select>
+                    </div>
+                  </>
+                ) : formData.technologyScope === 'computing' ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Criticidad e Impacto Asistencial TIC</Label>
+                      <select
+                        value={(formData as any).itCriticality || 'Media (Asistencial / Facturación)'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, itCriticality: e.target.value } as any))}
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
+                      >
+                        <option value="Crítica (Historia Clínica / UCI / Core)">🔴 Crítica (Historia Clínica / UCI / Core)</option>
+                        <option value="Media (Asistencial / Facturación)">🟡 Media (Asistencial / Facturación)</option>
+                        <option value="Baja (Administrativa)">🟢 Baja (Administrativa / Apoyo)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Tipo de Conexión / Interfaz</Label>
+                      <Input 
+                        value={(formData as any).networkConnection || 'Cableado / USB'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, networkConnection: e.target.value } as any))}
+                        placeholder="Ej: USB 3.0, RJ-45 LAN, Bluetooth, Wi-Fi"
+                        className="h-11 rounded-xl border-slate-200 font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Rol en el Servicio Asistencial</Label>
+                      <Input 
+                        value={(formData as any).functionalRole || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, functionalRole: e.target.value } as any))}
+                        placeholder="Ej: Lector de código de barras para verificación de medicamentos en farmacia/UCI"
+                        className="h-11 rounded-xl border-slate-200 font-medium"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Impacto Operativo Industrial</Label>
+                      <select
+                        value={(formData as any).industrialCriticality || 'Media (Operativa / Servicios Generales)'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, industrialCriticality: e.target.value } as any))}
+                        className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none"
+                      >
+                        <option value="Alta (Soporte Vital / Continuidad Crítica)">🔴 Alta (Soporte Vital / Continuidad Crítica)</option>
+                        <option value="Media (Operativa / Servicios Generales)">🟡 Media (Operativa / Servicios Generales)</option>
+                        <option value="Baja (Confort / Apoyo)">🟢 Baja (Confort / Apoyo)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Normativa Técnica Aplicable</Label>
+                      <Input 
+                        value={(formData as any).technicalNorm || 'RETIE / NTC 2050'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, technicalNorm: e.target.value } as any))}
+                        placeholder="Ej: RETIE, ASME, NTC 2050"
+                        className="h-11 rounded-xl border-slate-200 font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="font-black text-slate-700 text-xs uppercase tracking-wider">Área o Cobertura de Impacto</Label>
+                      <Input 
+                        value={(formData as any).coverageArea || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, coverageArea: e.target.value } as any))}
+                        placeholder="Ej: Manifold de gases de UCI, Tablero general de urgencias"
+                        className="h-11 rounded-xl border-slate-200 font-medium"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -2382,9 +2581,14 @@ export default function MinorDevices() {
               {/* Header card with core details */}
               <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div>
-                  <Badge variant="outline" className="text-[10px] font-black tracking-widest text-primary border-primary/20 bg-primary/5 rounded-lg mb-2 uppercase">
-                    {getCategoryLabel(selectedDeviceDetails.type)}
-                  </Badge>
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] font-black tracking-widest text-primary border-primary/20 bg-primary/5 rounded-lg uppercase">
+                      {getCategoryLabel(selectedDeviceDetails.type)}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px] font-black tracking-widest uppercase rounded-lg border">
+                      {(selectedDeviceDetails as any).technologyScope === 'computing' ? 'Cómputo TIC' : (selectedDeviceDetails as any).technologyScope === 'infrastructure' ? 'Infraestructura' : 'Tecnología Biomédica'}
+                    </Badge>
+                  </div>
                   <h3 className="text-3xl font-black text-slate-900 leading-none">{selectedDeviceDetails.name}</h3>
                   <div className="flex flex-wrap items-center gap-4 mt-3 text-xs font-bold text-slate-500">
                     <span className="flex items-center gap-1.5">

@@ -348,14 +348,26 @@ export function autoEvaluateDimensions(
     autoEnvironmental = 3;
   }
 
-  // 8. REGULATORIA (5%): Registro INVIMA y normatividad
+  // 8. REGULATORIA (5%): Registro INVIMA (Biomédica) / Normativa RETIE o Licencias (Industrial/TIC)
   let autoRegulatory = 1;
-  if (!equipment.registrationInvima || equipment.registrationInvima.trim() === '') {
-    autoRegulatory = 3; // Sin registro documentado en ficha
-  } else if (equipment.registrationExpiration) {
-    const expDate = new Date(equipment.registrationExpiration);
-    if (!isNaN(expDate.getTime()) && expDate < new Date()) {
-      autoRegulatory = 4; // Registro INVIMA vencido
+  const eqScope = equipment.technologyScope || 'biomedical';
+  if (eqScope === 'biomedical') {
+    if (!equipment.registrationInvima || equipment.registrationInvima.trim() === '') {
+      autoRegulatory = 3; // Sin registro documentado en ficha
+    } else if (equipment.registrationExpiration) {
+      const expDate = new Date(equipment.registrationExpiration);
+      if (!isNaN(expDate.getTime()) && expDate < new Date()) {
+        autoRegulatory = 4; // Registro INVIMA vencido
+      }
+    }
+  } else if (eqScope === 'infrastructure') {
+    if (!equipment.technicalNorm && !equipment.certCertificateNumber) {
+      autoRegulatory = 2; // Pendiente documentar dictamen RETIE o norma técnica
+    }
+  } else {
+    // computing (TIC)
+    if (!equipment.licenseStatus && !equipment.operatingSystem) {
+      autoRegulatory = 2; // Pendiente verificar licenciamiento y SO
     }
   }
 
@@ -416,7 +428,11 @@ export function autoEvaluateDimensions(
     regulatory: buildScore(
       'regulatory', 
       autoRegulatory, 
-      equipment.registrationInvima ? `Registro INVIMA: ${equipment.registrationInvima}` : 'Pendiente verificar vigencia en base INVIMA.'
+      (equipment.technologyScope || 'biomedical') === 'biomedical'
+        ? (equipment.registrationInvima ? `Registro INVIMA: ${equipment.registrationInvima}` : 'Pendiente verificar vigencia en base INVIMA.')
+        : equipment.technologyScope === 'computing'
+        ? (equipment.licenseStatus ? `Licenciamiento TIC: ${equipment.licenseStatus}` : 'Gestión de licencias y seguridad de endpoints TIC.')
+        : (equipment.technicalNorm ? `Normativa técnica: ${equipment.technicalNorm} ${equipment.certCertificateNumber || ''}` : 'Conformidad técnica y normativa industrial.')
     )
   };
 }

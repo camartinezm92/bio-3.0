@@ -28,6 +28,8 @@ import { collection, onSnapshot, doc, updateDoc, writeBatch } from 'firebase/fir
 import { db } from '@/lib/firebase';
 import { Equipment } from '@/types';
 import { cn } from '@/lib/utils';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { ConfirmModal, FeedbackModal } from '@/components/ui/ConfirmModal';
 import { 
   Select, 
   SelectContent, 
@@ -51,11 +53,15 @@ const months = [
 ];
 
 export default function Schedule() {
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
   const [equipmentList, setEquipmentList] = React.useState<Equipment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [serviceFilter, setServiceFilter] = React.useState('all');
   const [yearFilter, setYearFilter] = React.useState(new Date().getFullYear().toString());
+  const [showClearConfirm, setShowClearConfirm] = React.useState(false);
+  const [showAutoGenerateConfirm, setShowAutoGenerateConfirm] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   React.useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'equipment'), (snapshot) => {
@@ -73,9 +79,13 @@ export default function Schedule() {
     return () => unsubscribe();
   }, []);
 
-  const services = Array.from(new Set(equipmentList.map(e => e.serviceName).filter(Boolean)));
+  const scopedEquipmentList = React.useMemo(() => {
+    return filterByScope(equipmentList);
+  }, [equipmentList, filterByScope]);
 
-  const filteredEquipment = equipmentList.filter(eq => {
+  const services = Array.from(new Set(scopedEquipmentList.map(e => e.serviceName).filter(Boolean)));
+
+  const filteredEquipment = scopedEquipmentList.filter(eq => {
     if (serviceFilter !== 'all' && eq.serviceName !== serviceFilter) return false;
     if (['baja', 'baja_repuestos'].includes(eq.status)) return false;
     return true;
@@ -160,8 +170,7 @@ export default function Schedule() {
   };
 
   const autoGenerateSchedule = async () => {
-    if (!window.confirm('¿Desea generar automáticamente el cronograma basado en la frecuencia de mantenimiento de cada equipo? Esto sobrescribirá los cambios manuales.')) return;
-    
+    setShowAutoGenerateConfirm(false);
     setSaving(true);
     const batch = writeBatch(db);
     console.log(`Starting auto-generate for target year: ${yearFilter}. Total equipment: ${filteredEquipment.length}`);
@@ -177,22 +186,17 @@ export default function Schedule() {
 
       const projectDates = (type: string, baseDateStr: string | undefined, freq: number | undefined, targetArray: number[]) => {
         if (!baseDateStr) {
-           console.log(`[${eq.name} - ${eq.serial}] [${type}] Skipped: No base date.`);
            return;
         }
         
-        // Add artificial time to prevent UTC date shift on initialization
         const baseDate = new Date(`${baseDateStr}T12:00:00Z`); 
         
         if (isNaN(baseDate.getTime())) {
-           console.log(`[${eq.name} - ${eq.serial}] [${type}] Skipped: Invalid date format '${baseDateStr}'`);
            return;
         }
 
         let currentMonth = baseDate.getMonth();
         let currentYear = baseDate.getFullYear();
-        
-        console.log(`[${eq.name} - ${eq.serial}] [${type}] Initial Base: ${baseDateStr} (Year: ${currentYear}, MonthIndex: ${currentMonth}), Freq: ${freq}`);
 
         if (!freq || freq <= 0) {
            if (currentYear === targetYear && !targetArray.includes(currentMonth)) {
@@ -201,7 +205,6 @@ export default function Schedule() {
            return;
         }
 
-        // Limit the forward projection to max year + 5 to prevent infinite loops if something goes wrong
         let loopSafety = 0;
         while (currentYear <= targetYear && loopSafety < 100) {
           loopSafety++;
@@ -214,8 +217,6 @@ export default function Schedule() {
             currentYear += 1;
           }
         }
-        
-        console.log(`[${eq.name} - ${eq.serial}] [${type}] Target Months in ${targetYear}:`, targetArray);
       };
 
       projectDates('Maintenance', eq.nextMaintenance || eq.lastMaintenance, eq.maintenanceFrequency, maintenanceMonths);
@@ -231,13 +232,19 @@ export default function Schedule() {
     });
 
     try {
-      console.log(`Executing batch commit for ${updatedCount} equipment...`);
       await batch.commit();
-      console.log("Batch commit successful.");
-      alert('Cronograma generado exitosamente. Revisa la consola para más detalles (F12).');
+      setFeedback({
+        title: 'Cronograma Auto-Generado',
+        message: `Se planificaron exitosamente los mantenimientos de ${updatedCount} equipos para el año ${yearFilter}.`,
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error committing batch:', error);
-      alert('Error al generar el cronograma.');
+      setFeedback({
+        title: 'Error al Generar',
+        message: 'No fue posible actualizar el cronograma automático en la base de datos.',
+        type: 'error'
+      });
     } finally {
       setSaving(false);
     }
@@ -314,19 +321,46 @@ export default function Schedule() {
     doc.save(`Cronograma_${yearFilter}_${serviceFilter}.pdf`);
   };
 
+  const handleConfirmClear = async () => {
+    setSaving(true);
+    try {
+      const batch = writeBatch(db);
+      filteredEquipment.forEach(eq => {
+        batch.update(doc(db, 'equipment', eq.id), {
+          scheduledMaintenanceMonths: [],
+          scheduledCalibrationMonths: [],
+          scheduledQualificationMonths: []
+        });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error("Error clearing schedule:", err);
+    } finally {
+      setSaving(false);
+      setShowClearConfirm(false);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b pb-8">
         <div>
-          <h1 className="text-4xl font-black tracking-tight text-slate-900">Cronograma {yearFilter}</h1>
-          <p className="text-lg text-slate-500 mt-2 font-medium">
-            Planificación anual por tipo de equipo. Los cambios afectan a todos los equipos del mismo tipo.
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+            Cronograma {yearFilter} - <span className="text-primary">{scopeConfig.label}</span>
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-medium">
+            Planificación anual de mantenimiento por tipo de equipo para {scopeConfig.shortLabel.toLowerCase()}. Los cambios afectan a todos los equipos del mismo tipo.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Button 
             variant="outline" 
-            onClick={autoGenerateSchedule} 
+            onClick={() => setShowAutoGenerateConfirm(true)} 
             disabled={saving}
             className="rounded-2xl h-12 px-6 border-slate-200 font-bold hover:bg-slate-50"
           >
@@ -343,20 +377,7 @@ export default function Schedule() {
           </Button>
           <Button 
             variant="ghost" 
-            onClick={async () => {
-              if (!window.confirm('¿Desea limpiar todo el cronograma para los equipos filtrados?')) return;
-              setSaving(true);
-              const batch = writeBatch(db);
-              filteredEquipment.forEach(eq => {
-                batch.update(doc(db, 'equipment', eq.id), {
-                  scheduledMaintenanceMonths: [],
-                  scheduledCalibrationMonths: [],
-                  scheduledQualificationMonths: []
-                });
-              });
-              await batch.commit();
-              setSaving(false);
-            }}
+            onClick={() => setShowClearConfirm(true)}
             className="rounded-2xl h-12 px-6 text-slate-500 font-bold hover:text-destructive"
           >
             Limpiar Todo
@@ -578,6 +599,43 @@ export default function Schedule() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal de confirmación para limpiar cronograma */}
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        onConfirm={handleConfirmClear}
+        title="¿Limpiar Todo el Cronograma?"
+        description={`Esta acción eliminará todas las asignaciones de meses planificados de mantenimiento, calibración y calificación para los equipos filtrados en ${scopeConfig.label}.`}
+        confirmText="Sí, Limpiar Cronograma"
+        cancelText="Cancelar"
+        variant="destructive"
+        isLoading={saving}
+      />
+
+      {/* Modal de confirmación para auto-generar cronograma */}
+      <ConfirmModal
+        isOpen={showAutoGenerateConfirm}
+        onClose={() => setShowAutoGenerateConfirm(false)}
+        onConfirm={autoGenerateSchedule}
+        title="¿Auto-Generar Cronograma Anual?"
+        description={`¿Desea generar automáticamente el cronograma para el año ${yearFilter} basado en la frecuencia de mantenimiento de cada equipo en ${scopeConfig.label}? Esto sobrescribirá las asignaciones manuales previas.`}
+        confirmText="Generar Automáticamente"
+        cancelText="Cancelar"
+        variant="default"
+        isLoading={saving}
+      />
+
+      {/* In-app feedback modal */}
+      {feedback && (
+        <FeedbackModal
+          isOpen={!!feedback}
+          onClose={() => setFeedback(null)}
+          title={feedback.title}
+          message={feedback.message}
+          type={feedback.type}
+        />
+      )}
     </div>
   );
 }

@@ -20,7 +20,9 @@ import Landing from './pages/Landing';
 import PendingApproval from './pages/PendingApproval';
 import MinorDevices from './pages/MinorDevices';
 import ObsolescenceMatrix from './pages/ObsolescenceMatrix';
+import TechHub from './pages/TechHub';
 import { AuthProvider, useAuth } from './lib/AuthContext';
+import { TechnologyScopeProvider } from './lib/TechnologyScopeContext';
 import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { mockServices } from './services/mockData';
@@ -44,6 +46,7 @@ function PageTitle() {
       '/users': 'Gestión de Usuarios',
       '/minor-devices': 'Dispositivos e Instrumental',
       '/obsolescence': 'Matriz de Obsolescencia',
+      '/portal': 'Portal de Módulos Tecnológicos',
       '/login': 'Iniciar Sesión',
       '/welcome': 'Bienvenido',
       '/pending': 'Pendiente de Aprobación'
@@ -127,6 +130,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/welcome" element={<Landing />} />
       <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+      <Route path="/portal" element={user ? <TechHub /> : <Navigate to="/welcome" />} />
       
       <Route element={user ? <AppLayout /> : <Navigate to="/welcome" />}>
         <Route path="/" element={<Dashboard />} />
@@ -155,10 +159,12 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <PageTitle />
-        <AppRoutes />
-      </BrowserRouter>
+      <TechnologyScopeProvider>
+        <BrowserRouter>
+          <PageTitle />
+          <AppRoutes />
+        </BrowserRouter>
+      </TechnologyScopeProvider>
     </AuthProvider>
   );
 }

@@ -17,6 +17,8 @@ export interface User {
   createdAt?: string;
 }
 
+export type TechnologyScope = 'biomedical' | 'computing' | 'infrastructure' | 'all';
+
 export interface Equipment {
   id: string;
   name: string;
@@ -28,12 +30,13 @@ export interface Equipment {
   assetNumber: string;
   serviceId: string;
   serviceName?: string;
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure';
   status: 'active' | 'maintenance' | 'out_of_service' | 'paused' | 'reserva' | 'baja_repuestos' | 'baja';
   decommissioningActUrl?: string; // URL for "Acta de Baja" document
   decommissioningDate?: string;
   decommissioningReason?: string;
-  riskClass: 'I' | 'IIa' | 'IIb' | 'III';
-  biomedicalType: 'diagnostic' | 'treatment' | 'rehabilitation' | 'support';
+  riskClass?: 'I' | 'IIa' | 'IIb' | 'III';
+  biomedicalType?: 'diagnostic' | 'treatment' | 'rehabilitation' | 'support';
   acquisitionDate?: string;
   warrantyExpiration?: string;
   manufacturingYear?: number;
@@ -75,8 +78,8 @@ export interface Equipment {
   // --- Detailed Hoja de Vida Fields ---
   accessories?: { description: string; brand: string; model: string; serial: string; reference: string; quantity: number }[];
   physiologicalPrinciple?: string;
-  equipmentType?: 'Fijo' | 'Móvil';
-  predominantTechnology?: 'Mecánico' | 'Electrónico' | 'Eléctrico' | 'Hidráulico' | 'Neumático' | 'Otro';
+  equipmentType?: 'Fijo' | 'Móvil' | 'Rack / Servidor' | 'Portátil';
+  predominantTechnology?: 'Mecánico' | 'Electrónico' | 'Eléctrico' | 'Hidráulico' | 'Neumático' | 'Electromecánico' | 'Óptico' | 'Otro';
   dimensions?: string;
   powerSupply?: string;
   technicalCharacteristics?: {
@@ -102,6 +105,31 @@ export interface Equipment {
   biomedicalClassification?: 'Rehabilitación' | 'Prevención' | 'Tratamiento' | 'Diagnóstico' | 'Análisis de Lab' | 'Otro';
   manualsAvailable?: ('Usuario' | 'Servicio' | 'Componentes' | 'Despiece')[];
   manufacturerRecommendations?: string;
+
+  // --- Campos Específicos TIC / Cómputo ---
+  itCategory?: 'Servidor' | 'Estación de Trabajo / PC' | 'Portátil / Laptop' | 'Redes (Switch/Router/AP)' | 'Impresora / Periférico' | 'Almacenamiento (NAS/SAN)' | 'Telefonía IP' | 'Seguridad / CCTV' | 'Otro';
+  itCriticality?: 'Crítica (Historia Clínica / UCI / Core)' | 'Media (Asistencial / Facturación)' | 'Baja (Administrativa)';
+  operatingSystem?: string;
+  ipAddress?: string;
+  macAddress?: string;
+  networkConnection?: 'Cableado (LAN)' | 'Inalámbrico (Wi-Fi)' | 'Fibra Óptica' | 'No aplica';
+  processor?: string;
+  ramMemory?: string;
+  storageCapacity?: string;
+  antivirusSoftware?: string;
+  licenseStatus?: string;
+  functionalRole?: string; // Rol o función en el servicio asistencial
+
+  // --- Campos Específicos Infraestructura e Industrial ---
+  industrialSystem?: 'Generación y Respaldo (Planta/UPS)' | 'Distribución Eléctrica' | 'Gases Medicinales y Vacío' | 'Climatización y HVAC' | 'Hidrosanitario y RCI' | 'Vapor y Esterilización' | 'Otro';
+  industrialCriticality?: 'Alta (Soporte Vital / Continuidad Crítica)' | 'Media (Operativa / Servicios Generales)' | 'Baja (Confort / Apoyo)';
+  capacityPower?: string; // ej: 150 kVA, 50 HP, 60.000 BTU
+  operatingVoltage?: string; // ej: 220V Trifásico, 440V, 110V
+  fuelOrFluids?: string; // Diésel, Refrigerante R410A, Gas Natural...
+  technicalNorm?: string; // RETIE, NFPA 99, NTC 2050, ASME...
+  certCertificateNumber?: string; // Certificado de conformidad RETIE o prueba de carga
+  coverageArea?: string; // Áreas o servicios asistenciales que alimenta
+  functionalDescription?: string; // Descripción del funcionamiento y modo de contingencia
 }
 
 export interface Provider {
@@ -114,6 +142,7 @@ export interface Provider {
   whatsapp?: string;
   email: string;
   specialties: string[];
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'all';
   createdAt: string;
 }
 
@@ -188,6 +217,7 @@ export interface MaintenanceReport {
   driveFileId?: string;
   driveFileUrl?: string;
   attachmentUrl?: string;
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure';
   createdAt?: any;
 }
 
@@ -225,6 +255,8 @@ export interface Guide {
   title: string;
   url: string;
   type: 'file' | 'link';
+  fileSize?: string;
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'all';
   createdAt: string;
 }
 
@@ -239,6 +271,10 @@ export interface ComplianceSubmission {
   responses: ComplianceResponse[];
   nextReviewDate: string;
   observations?: string;
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure';
+  standardName?: string;
+  standardReference?: string;
+  formCode?: string;
 }
 
 export interface ComplianceResponse {

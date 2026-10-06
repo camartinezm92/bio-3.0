@@ -137,6 +137,35 @@
         "createdAt": { "type": "string" }
       },
       "required": ["date", "performedBy", "performedByName", "items"]
+    },
+    "Provider": {
+      "title": "Provider",
+      "description": "Technical and commercial provider contacts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "contactName": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "email": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "technologyScope": { "type": "string" }
+      },
+      "required": ["name", "email"]
+    },
+    "Guide": {
+      "title": "Guide",
+      "description": "Compliance norms, guides and technical files",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "type": { "type": "string" },
+        "technologyScope": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "url"]
     }
   },
   "firestore": {
@@ -167,6 +196,14 @@
     "/minor_devices_inventories/{inventoryId}": {
       "schema": "MinorDevicesInventory",
       "description": "Minor devices physical inventory records"
+    },
+    "/providers/{providerId}": {
+      "schema": "Provider",
+      "description": "Specialized service providers"
+    },
+    "/guides/{guideId}": {
+      "schema": "Guide",
+      "description": "Compliance guides and technical protocols"
     }
   }
 }

@@ -28,9 +28,11 @@ import {
 import { db } from '@/lib/firebase';
 import { Transfer } from '@/types';
 import TransferForm from '@/components/forms/TransferForm';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 import { cn } from '@/lib/utils';
 
 export default function Transfers() {
+  const { scope, scopeConfig } = useTechnologyScope();
   const [showForm, setShowForm] = React.useState(false);
   const [selectedTransfer, setSelectedTransfer] = React.useState<Transfer | null>(null);
   const [transfers, setTransfers] = React.useState<Transfer[]>([]);
@@ -56,7 +58,15 @@ export default function Transfers() {
     return () => unsubscribe();
   }, []);
 
-  const filteredTransfers = transfers.filter(tr => {
+  const scopedTransfers = React.useMemo(() => {
+    if (scope === 'all') return transfers;
+    return transfers.filter(tr => {
+      const itemScope = (tr as any).technologyScope || 'biomedical';
+      return itemScope === scope;
+    });
+  }, [transfers, scope]);
+
+  const filteredTransfers = scopedTransfers.filter(tr => {
     const searchLower = searchQuery.toLowerCase();
     return (
       tr.equipmentName.toLowerCase().includes(searchLower) ||
@@ -104,9 +114,14 @@ export default function Transfers() {
     <div className="space-y-10 animate-in fade-in duration-700">
       <div className="flex items-end justify-between border-b pb-8">
         <div>
+          <div className="flex items-center gap-2 mb-2">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
           <h1 className="text-4xl font-black tracking-tight text-slate-900">Traslados</h1>
           <p className="text-lg text-slate-500 mt-2 font-medium">
-            Control de movimientos y trazabilidad de ubicación de equipos biomédicos.
+            Control de movimientos y trazabilidad de ubicación de activos y tecnologías ({scopeConfig.label}).
           </p>
         </div>
         <Button onClick={() => setShowForm(true)} className="rounded-2xl h-14 px-8 shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98] text-lg font-bold">

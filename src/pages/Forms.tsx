@@ -48,10 +48,13 @@ import { Badge } from '@/components/ui/badge';
 import { Sparkles, Check, ChevronRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
+import { cn } from '@/lib/utils';
 
 type FormType = 'equipment' | 'service' | 'preventive' | 'corrective' | 'calibration' | 'go_service' | null;
 
 export default function Forms() {
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
   const [activeForm, setActiveForm] = React.useState<FormType>(null);
   const [showExtraForms, setShowExtraForms] = React.useState(false);
   const [equipmentList, setEquipmentList] = React.useState<Equipment[]>([]);
@@ -96,7 +99,11 @@ export default function Forms() {
     };
   }, []);
 
-  const filteredEquipment = equipmentList.filter(eq => 
+  const scopedEquipment = React.useMemo(() => {
+    return filterByScope(equipmentList);
+  }, [equipmentList, filterByScope]);
+
+  const filteredEquipment = scopedEquipment.filter(eq => 
     eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     eq.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
     eq.assetNumber.toLowerCase().includes(searchTerm.toLowerCase())
@@ -506,10 +513,15 @@ export default function Forms() {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+            {scopeConfig.shortLabel}
+          </span>
+        </div>
         <h1 className="text-4xl font-black tracking-tight text-slate-900">Formatos y Acciones</h1>
         <div className="flex items-center gap-3 mt-2">
           <p className="text-lg text-slate-500 font-medium">
-            Centro de creación de registros y reportes técnicos.
+            Centro de creación de registros y reportes técnicos ({scopeConfig.label}).
           </p>
           <button 
             onClick={() => setShowExtraForms(true)} 
@@ -553,9 +565,14 @@ export default function Forms() {
       >
         <DialogContent className="max-w-2xl rounded-3xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-black">Seleccionar Equipo</DialogTitle>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={cn("px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+                {scopeConfig.shortLabel}
+              </span>
+            </div>
+            <DialogTitle className="text-2xl font-black">Seleccionar Equipo ({scopeConfig.label})</DialogTitle>
             <DialogDescription className="font-medium">
-              Busque el equipo para el cual desea generar el reporte o calibración.
+              Busque el activo de {scopeConfig.label} para el cual desea generar el reporte o calibración.
             </DialogDescription>
           </DialogHeader>
           
@@ -563,7 +580,7 @@ export default function Forms() {
             <div className="relative">
               <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               <Input 
-                placeholder="Buscar por nombre, serial o activo fijo..." 
+                placeholder={`Buscar en ${scopeConfig.label} por nombre, serial o activo fijo...`} 
                 className="pl-12 h-12 rounded-xl border-slate-200"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -576,7 +593,10 @@ export default function Forms() {
                   <Loader2 className="h-8 w-8 text-primary animate-spin" />
                 </div>
               ) : filteredEquipment.length === 0 ? (
-                <p className="text-center py-8 text-slate-500 font-medium">No se encontraron equipos.</p>
+                <div className="text-center py-8 space-y-2">
+                  <p className="text-slate-500 font-medium">No se encontraron equipos en el área de {scopeConfig.label}.</p>
+                  <p className="text-xs text-slate-400">Verifique el área tecnológica activa o cree un equipo nuevo en esta área.</p>
+                </div>
               ) : (
                 filteredEquipment.map((eq) => (
                   <div 
@@ -585,7 +605,14 @@ export default function Forms() {
                     onClick={() => setSelectedEquipment(eq)}
                   >
                     <div>
-                      <p className="font-bold text-slate-900 group-hover:text-primary transition-colors">{eq.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-slate-900 group-hover:text-primary transition-colors">{eq.name}</p>
+                        {scope === 'all' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold">
+                            {eq.technologyScope === 'computing' ? 'TIC' : eq.technologyScope === 'infrastructure' ? 'Infraestructura' : 'Biomédica'}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 font-medium">Serial: {eq.serial} | Activo: {eq.assetNumber}</p>
                     </div>
                     <Button variant="ghost" size="sm" className="rounded-xl font-bold">Seleccionar</Button>

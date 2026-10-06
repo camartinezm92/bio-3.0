@@ -20,6 +20,7 @@ async function startServer() {
   // Body parser for JSON
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ limit: '100mb', extended: true }));
+  app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
   // Google Authentication Helper
   const getGoogleAuth = (scopes: string[], useSubject: boolean = false) => {
@@ -192,6 +193,19 @@ async function startServer() {
       // 1. Obtener o Crear la carpeta maestra "Equipos" en la raíz
       const mainEquiposId = await getOrCreateFolder(drive, 'Equipos', rootFolderId);
 
+      // Determinar la carpeta contenedora según el área tecnológica:
+      // - Biomédica: se mantiene directamente en "Equipos" (no subcarpeta)
+      // - Cómputo/TIC: se aloja en subcarpeta "Equipos TIC" dentro de "Equipos"
+      // - Infraestructura: se aloja en subcarpeta "Infraestructura y Otros" dentro de "Equipos"
+      const techScope = equipment.technologyScope || 'biomedical';
+      let parentScopeFolderId = mainEquiposId;
+
+      if (techScope === 'computing') {
+        parentScopeFolderId = await getOrCreateFolder(drive, 'Equipos TIC', mainEquiposId);
+      } else if (techScope === 'infrastructure') {
+        parentScopeFolderId = await getOrCreateFolder(drive, 'Infraestructura y Otros', mainEquiposId);
+      }
+
       // Usar la carpeta del equipo actual si está en modo edición y existe, o crearla
       let eqFolderId = equipment.driveFolderId;
       const folderName = `${equipment.name?.toUpperCase() || 'EQUIPO'} - ${equipment.serial}`;
@@ -211,10 +225,9 @@ async function startServer() {
         }
       }
 
-      // Si no hay carpeta, o forzamos recreación, creamos la estructura
-      // Note: isEdit could be false, but they passed a driveFolderId if it was duplicated, etc.
+      // Si no hay carpeta, o forzamos recreación, creamos la estructura dentro del contenedor del área correspondiente
       if (!eqFolderId) {
-        eqFolderId = await getOrCreateFolder(drive, folderName, mainEquiposId);
+        eqFolderId = await getOrCreateFolder(drive, folderName, parentScopeFolderId);
       }
 
       // 3. Subir Foto del Equipo a su carpeta si existe
@@ -605,7 +618,12 @@ async function startServer() {
 
   // RUTA PARA SUBIR REPORTES, TRASLADOS O ACTAS AL DRIVE
   app.post('/api/drive/upload-document', async (req, res) => {
-    const { equipmentDirId, equipmentSerial, equipmentName, folderType, fileName, base64, mimeType } = req.body;
+    const rawEquipmentDirId = req.body.equipmentDirId || req.body.folderId || req.body.driveFolderId;
+    const rawEquipmentSerial = req.body.equipmentSerial || req.body.serial;
+    const rawEquipmentName = req.body.equipmentName;
+    const fileName = req.body.fileName || req.body.name || req.body.filename || 'documento.pdf';
+    const folderType = req.body.folderType || 'documents';
+    const { base64, mimeType, technologyScope } = req.body;
     const drive = getDriveClient();
     const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID?.trim();
     
@@ -616,7 +634,7 @@ async function startServer() {
       let parentId = rootFolderId; // Por defecto a la raíz si no es de equipo
 
       // Logica de Recuperación: Si un equipo es viejo y no tiene dirId, pero conocemos nombre y serial:
-      let activeEqDirId = equipmentDirId;
+      let activeEqDirId = rawEquipmentDirId;
       
       // Asegurarnos que la carpeta existe aún (no ha sido borrada)
       if (activeEqDirId) {
@@ -628,12 +646,18 @@ async function startServer() {
         }
       }
 
-      if (!activeEqDirId && equipmentSerial && equipmentName) {
+      if (!activeEqDirId && rawEquipmentSerial && rawEquipmentName) {
          try {
            const mainEquiposId = await getOrCreateFolder(drive, 'Equipos', rootFolderId);
-           const folderName = `${equipmentName.toUpperCase()} - ${equipmentSerial}`;
+           let parentScopeFolderId = mainEquiposId;
+           if (technologyScope === 'computing') {
+             parentScopeFolderId = await getOrCreateFolder(drive, 'Equipos TIC', mainEquiposId);
+           } else if (technologyScope === 'infrastructure') {
+             parentScopeFolderId = await getOrCreateFolder(drive, 'Infraestructura y Otros', mainEquiposId);
+           }
+           const folderName = `${rawEquipmentName.toUpperCase()} - ${rawEquipmentSerial}`;
            // Intenta encontrarlo o crearlo si no existe para mantener integridad
-           activeEqDirId = await getOrCreateFolder(drive, folderName, mainEquiposId);
+           activeEqDirId = await getOrCreateFolder(drive, folderName, parentScopeFolderId);
          } catch(e) {
            console.log("No se pudo regenerar dir id:", e);
          }
@@ -649,16 +673,27 @@ async function startServer() {
           parentId = await getOrCreateFolder(drive, 'Calibraciones', repId);
         } else if (folderType === 'transfer') {
           const repId = await getOrCreateFolder(drive, 'Reportes', activeEqDirId);
-          parentId = await getOrCreateFolder(drive, 'Traslados', repId); // También se puede tener una subcarpeta de Traslados dentro del equipo
+          parentId = await getOrCreateFolder(drive, 'Traslados', repId);
+        } else if (folderType === 'decommissioning' || folderType === 'baja') {
+          parentId = await getOrCreateFolder(drive, 'Actas de Baja', activeEqDirId);
         } else {
           parentId = await getOrCreateFolder(drive, 'Documentos', activeEqDirId);
         }
       } else {
-        // Archivos globales: Traslados Generales o Listas de Chequeo
+        // Archivos globales: Traslados Generales, Listas de Chequeo o Actas de Baja
         if (folderType === 'transfer') {
           parentId = await getOrCreateFolder(drive, 'Traslados', rootFolderId);
         } else if (folderType === 'compliance') {
-          parentId = await getOrCreateFolder(drive, 'Listas de Chequeo', rootFolderId);
+          const mainListasId = await getOrCreateFolder(drive, 'Listas de Chequeo', rootFolderId);
+          if (technologyScope === 'computing') {
+            parentId = await getOrCreateFolder(drive, 'Listas de Chequeo TIC', mainListasId);
+          } else if (technologyScope === 'infrastructure') {
+            parentId = await getOrCreateFolder(drive, 'Listas de Chequeo Infraestructura', mainListasId);
+          } else {
+            parentId = await getOrCreateFolder(drive, 'Listas de Chequeo Biomédica', mainListasId);
+          }
+        } else if (folderType === 'decommissioning' || folderType === 'baja') {
+          parentId = await getOrCreateFolder(drive, 'Actas de Baja', rootFolderId);
         }
       }
 
@@ -677,15 +712,40 @@ async function startServer() {
         supportsAllDrives: true,
       });
 
+      const fileUrl = upload.data.webViewLink || (upload.data.id ? `https://drive.google.com/file/d/${upload.data.id}/view` : '');
+
       res.json({
         status: 'ok',
         fileId: upload.data.id,
-        webViewLink: upload.data.webViewLink
+        webViewLink: fileUrl,
+        url: fileUrl
       });
 
     } catch (error: any) {
-      console.error('Error uploading document to Drive:', error.message || error);
-      res.status(500).json({ error: error.message || 'Error uploading document' });
+      console.error('Error uploading document to Drive, using local fallback:', error.message || error);
+      // Fallback: Si Google Drive no está configurado o falla, almacenar localmente para no bloquear la operación
+      try {
+        const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        const safeBaseName = (fileName || 'documento.pdf').replace(/[^a-zA-Z0-9_.-]/g, '_');
+        const uniqueFileName = `${Date.now()}_${safeBaseName}`;
+        const filePath = path.join(uploadsDir, uniqueFileName);
+        const base64Data = base64.split(',')[1] || base64;
+        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+        const localUrl = `/uploads/${uniqueFileName}`;
+        return res.json({
+          status: 'ok',
+          fallback: true,
+          fileId: uniqueFileName,
+          webViewLink: localUrl,
+          url: localUrl
+        });
+      } catch (localErr: any) {
+        console.error('Local fallback upload failed:', localErr);
+        res.status(500).json({ error: error.message || 'Error uploading document' });
+      }
     }
   });
 

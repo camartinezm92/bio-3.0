@@ -70,6 +70,32 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
   let currentY = (doc as any).lastAutoTable.finalY + 0.1;
 
   // --- 2. IDENTIFICACIÓN DEL EQUIPO ---
+  const scope = equipment.technologyScope || 'biomedical';
+  const isBiomedical = scope === 'biomedical';
+  const isComputing = scope === 'computing';
+  const isIndustrial = scope === 'infrastructure';
+
+  let regLabel = 'REG. SANITARIO';
+  let regValue = c(equipment.registrationInvima);
+  let impactHeader = 'PRINCIPIO FISIOLÓGICO DE FUNCIONAMIENTO';
+  let impactContent = c(equipment.physiologicalPrinciple);
+
+  if (isComputing) {
+    regLabel = 'SISTEMA OPERATIVO';
+    regValue = c(equipment.operatingSystem || 'N/A');
+    impactHeader = 'ROL O FUNCIÓN EN EL SERVICIO ASISTENCIAL (IMPACTO TIC)';
+    impactContent = c(equipment.functionalRole || 'Equipo de procesamiento, registro y gestión de datos hospitalarios.');
+  } else if (isIndustrial) {
+    regLabel = 'NORMA TÉCNICA';
+    regValue = c(equipment.technicalNorm || 'RETIE / NTC 2050');
+    impactHeader = 'COBERTURA ASISTENCIAL Y OPERACIÓN EN CONTINGENCIA';
+    impactContent = c(
+      equipment.coverageArea 
+        ? `${equipment.coverageArea} | ${equipment.functionalDescription || ''}` 
+        : (equipment.functionalDescription || 'Suministro y soporte continuo de infraestructura hospitalaria.')
+    );
+  }
+
   autoTable(doc, {
     startY: currentY,
     margin: { left: margin, right: margin },
@@ -100,14 +126,14 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
         'UBICACIÓN', c(equipment.location?.toUpperCase())
       ],
       [
-        'REG. SANITARIO', c(equipment.registrationInvima),
+        regLabel, regValue,
         'FECHA DE ADQ.', c(equipment.acquisitionDate)
       ],
       [
-        { content: 'PRINCIPIO FISIOLÓGICO DE FUNCIONAMIENTO', colSpan: 5, styles: hStyle as any }
+        { content: impactHeader, colSpan: 5, styles: hStyle as any }
       ],
       [
-        { content: c(equipment.physiologicalPrinciple), colSpan: 5, styles: { halign: 'center', minCellHeight: 15, valign: 'middle' } }
+        { content: impactContent, colSpan: 5, styles: { halign: 'center', minCellHeight: 15, valign: 'middle' } }
       ]
     ],
     didDrawCell: (data) => {
@@ -312,11 +338,37 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
         'EMAIL', c(mf.email)
       ],
       [
-        { content: 'TECNOVIGILANCIA', colSpan: 4, styles: sectionHeaderStyle as any }
+        { 
+          content: isComputing 
+            ? 'GESTIÓN DE RED, SEGURIDAD Y LICENCIAMIENTO TIC' 
+            : isIndustrial 
+            ? 'CUMPLIMIENTO TÉCNICO Y NORMATIVA INDUSTRIAL' 
+            : 'TECNOVIGILANCIA', 
+          colSpan: 4, 
+          styles: sectionHeaderStyle as any 
+        }
       ],
       [
-        'REGISTRO SANITARIO', c(equipment.registrationInvima),
-        'VIGENCIA DEL REGISTRO', c(equipment.registrationExpiration)
+        isComputing 
+          ? 'DIRECCIÓN IP / RED' 
+          : isIndustrial 
+          ? 'NORMATIVA APLICABLE' 
+          : 'REGISTRO SANITARIO', 
+        isComputing 
+          ? c(`${equipment.ipAddress || 'DHCP'} (${equipment.networkConnection || 'LAN'})`)
+          : isIndustrial 
+          ? c(equipment.technicalNorm || 'RETIE / NFPA 99')
+          : c(equipment.registrationInvima),
+        isComputing 
+          ? 'LICENCIA / ANTIVIRUS' 
+          : isIndustrial 
+          ? 'DICTAMEN / CERTIFICADO' 
+          : 'VIGENCIA DEL REGISTRO', 
+        isComputing 
+          ? c(`${equipment.licenseStatus || 'Activa'} | ${equipment.antivirusSoftware || 'Instalado'}`)
+          : isIndustrial 
+          ? c(equipment.certCertificateNumber || 'Dictamen Conforme')
+          : c(equipment.registrationExpiration)
       ]
     ]
   });
@@ -325,16 +377,10 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
 
   const clr = equipment.riskClass;
   const cb = equipment.biomedicalClassification;
-  autoTable(doc, {
-    startY: currentY,
-    margin: { left: margin, right: margin },
-    tableWidth: contentWidth,
-    theme: 'grid',
-    styles: { fontSize: 7, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0,0,0], valign: 'middle' },
-    columnStyles: {
-      0: dStyle as any, 1: dStyle as any, 2: dStyle as any, 3: dStyle as any, 4: dStyle as any
-    },
-    body: [
+  
+  let classificationBody: any[] = [];
+  if (isBiomedical) {
+    classificationBody = [
       [
         { content: 'CLASIFICACIÓN DE RIESGO', colSpan: 2, styles: hStyle as any },
         { content: 'CLASIFICACIÓN BIOMÉDICA', colSpan: 3, styles: hStyle as any }
@@ -353,7 +399,62 @@ export const generateEquipmentCVPDF = (equipment: Equipment, reports: Maintenanc
         `DIAGNÓSTICO [ ${chk(cb==='Diagnóstico')} ]`,
         `OTRO: [ ${chk(cb==='Otro')} ]`
       ]
-    ]
+    ];
+  } else if (isComputing) {
+    classificationBody = [
+      [
+        { content: 'CATEGORÍA DE ACTIVO TIC', colSpan: 2, styles: hStyle as any },
+        { content: 'CRITICIDAD E IMPACTO ASISTENCIAL', colSpan: 3, styles: hStyle as any }
+      ],
+      [
+        `SERVIDOR [ ${chk(equipment.itCategory === 'Servidor')} ]`,
+        `ESTACIÓN / PC [ ${chk(equipment.itCategory === 'Estación de Trabajo / PC')} ]`,
+        `CRÍTICA (UCI / CORE) [ ${chk(equipment.itCriticality?.includes('Crítica') || false)} ]`,
+        `MEDIA (ASISTENCIAL) [ ${chk(equipment.itCriticality?.includes('Media') || false)} ]`,
+        `BAJA (ADMIN) [ ${chk(equipment.itCriticality?.includes('Baja') || false)} ]`
+      ],
+      [
+        `PORTÁTIL [ ${chk(equipment.itCategory === 'Portátil / Laptop')} ]`,
+        `REDES / OTRO [ ${chk(equipment.itCategory === 'Redes (Switch/Router/AP)' || equipment.itCategory === 'Otro')} ]`,
+        `ANTIVIRUS: ${c(equipment.antivirusSoftware || 'VIGENTE')}`,
+        `CPU: ${c(equipment.processor || 'N/A')}`,
+        `RAM: ${c(equipment.ramMemory || 'N/A')}`
+      ]
+    ];
+  } else {
+    // Industrial
+    classificationBody = [
+      [
+        { content: 'SUBSISTEMA INDUSTRIAL', colSpan: 2, styles: hStyle as any },
+        { content: 'CRITICIDAD E IMPACTO OPERATIVO', colSpan: 3, styles: hStyle as any }
+      ],
+      [
+        `PLANTA / UPS [ ${chk(equipment.industrialSystem?.includes('Planta') || false)} ]`,
+        `ELÉCTRICO / RCI [ ${chk(equipment.industrialSystem?.includes('Distribución') || equipment.industrialSystem?.includes('RCI') || false)} ]`,
+        `ALTA (SOPORTE VITAL) [ ${chk(equipment.industrialCriticality?.includes('Alta') || false)} ]`,
+        `MEDIA (OPERATIVA) [ ${chk(equipment.industrialCriticality?.includes('Media') || false)} ]`,
+        `BAJA (CONFORT) [ ${chk(equipment.industrialCriticality?.includes('Baja') || false)} ]`
+      ],
+      [
+        `GASES / HVAC [ ${chk(equipment.industrialSystem?.includes('Gases') || equipment.industrialSystem?.includes('HVAC') || false)} ]`,
+        `VAPOR / OTRO [ ${chk(equipment.industrialSystem?.includes('Vapor') || equipment.industrialSystem === 'Otro')} ]`,
+        `POTENCIA: ${c(equipment.capacityPower || 'N/A')}`,
+        `VOLTAJE: ${c(equipment.operatingVoltage || 'N/A')}`,
+        `FLUIDO: ${c(equipment.fuelOrFluids || 'N/A')}`
+      ]
+    ];
+  }
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0,0,0], valign: 'middle' },
+    columnStyles: {
+      0: dStyle as any, 1: dStyle as any, 2: dStyle as any, 3: dStyle as any, 4: dStyle as any
+    },
+    body: classificationBody
   });
 
   currentY = (doc as any).lastAutoTable.finalY + 0.1;
@@ -892,6 +993,30 @@ export const generateCompliancePDF = (submission: ComplianceSubmission, returnBa
   const margin = 10;
   const contentWidth = pageWidth - (margin * 2);
   
+  const scope = submission.technologyScope || 'biomedical';
+  let reportTitle = 'REPORTE DE CHEQUEO DE OBLIGATORIEDAD Y HABILITACIÓN (RES. 3100)';
+  let macroproceso = 'Macroproceso: Calidad y Mejora Continua';
+  let proceso = 'Proceso: Gestión de Tecnología Biomédica';
+  let responsable = 'Responsable: Líder de Calidad / Biomédico';
+  let codigo = submission.formCode || 'Código: CAL-FOR-088-V1';
+  let referencia = submission.standardReference || 'Referencia: Res 3100 de 2019 (Dotación) / Dec 4725 de 2005';
+
+  if (scope === 'computing') {
+    reportTitle = 'REPORTE DE CHEQUEO DE OBLIGATORIEDAD TIC Y SISTEMAS (RES. 3100)';
+    macroproceso = 'Macroproceso: Gestión Estratégica y Soporte Tecnológico';
+    proceso = 'Proceso: Gestión de Tecnologías de la Información y TIC';
+    responsable = 'Responsable: Líder de Sistemas / Coordinador TIC';
+    codigo = submission.formCode || 'Código: TIC-FOR-015-V1';
+    referencia = submission.standardReference || 'Referencia: Res 3100 de 2019 (HC y Registros) / Ley 1581 / Ley 1273';
+  } else if (scope === 'infrastructure') {
+    reportTitle = 'REPORTE DE CHEQUEO DE OBLIGATORIEDAD INFRAESTRUCTURA (RES. 3100)';
+    macroproceso = 'Macroproceso: Gestión de Infraestructura y Soporte';
+    proceso = 'Proceso: Gestión de Infraestructura y Mantenimiento Hospitalario';
+    responsable = 'Responsable: Líder de Mantenimiento / Infraestructura';
+    codigo = submission.formCode || 'Código: INF-FOR-022-V1';
+    referencia = submission.standardReference || 'Referencia: Res 3100 de 2019 (Infraestructura) / RETIE / NTC 4410';
+  }
+
   // --- LOGO AND TITLE (Standalone header to avoid rowspan issues) ---
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
@@ -914,20 +1039,20 @@ export const generateCompliancePDF = (submission: ComplianceSubmission, returnBa
         { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } }
       ],
       [
-        { content: 'REPORTE DE CHEQUEO DE OBLIGATORIEDAD Y HABILITACIÓN', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
+        { content: reportTitle, colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } }
       ],
       [
-        { content: 'Macroproceso: Calidad y Mejora Continua', styles: { cellWidth: (contentWidth - 35) / 3 } },
-        { content: 'Proceso: Gestión de Tecnología Biomédica', colSpan: 2 }
+        { content: macroproceso, styles: { cellWidth: (contentWidth - 35) / 3 } },
+        { content: proceso, colSpan: 2 }
       ],
       [
-        { content: 'Responsable: Líder de Calidad / Biomédico' },
+        { content: responsable },
         { content: 'Fecha emisión: 2024-04-17' },
-        { content: 'Código: CAL-FOR-088-V1' }
+        { content: codigo }
       ],
       [
         { content: 'Frecuencia: Trimestral' },
-        { content: 'Referencia: Res 3100 de 2019 / Dec 4725 de 2005', colSpan: 2 }
+        { content: referencia, colSpan: 2 }
       ],
       [
         { content: 'Página 1 de 1' },

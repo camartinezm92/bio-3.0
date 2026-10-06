@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
-import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2, AlertTriangle } from 'lucide-react';
 import { deleteDoc, doc, onSnapshot, collection, query, where, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation } from '@/types';
@@ -29,6 +29,7 @@ import { CalibrationForm } from '@/components/forms/CalibrationForm';
 import TransferForm from '@/components/forms/TransferForm';
 import { ObsolescenceBar } from '@/components/obsolescence/ObsolescenceBar';
 import { ObsolescenceEvaluationModal } from '@/components/obsolescence/ObsolescenceEvaluationModal';
+import { FeedbackModal } from '@/components/ui/ConfirmModal';
 
 import { generateMaintenancePDF, generateEquipmentCVPDF } from '@/lib/pdfGenerator';
 
@@ -51,6 +52,7 @@ export default function EquipmentLifeCycle() {
   const [isExporting, setIsExporting] = React.useState(false);
   const [obsolescenceEvaluation, setObsolescenceEvaluation] = React.useState<ObsolescenceEvaluation | null>(null);
   const [showObsolescenceModal, setShowObsolescenceModal] = React.useState(false);
+  const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   const handleDownloadReport = (report: MaintenanceReport) => {
     // If it's an external report or calibration with an attachment, open the link
@@ -74,9 +76,18 @@ export default function EquipmentLifeCycle() {
       await syncEquipmentWithHistory(equipment, remainingReports);
       
       setReportToDelete(null);
+      setFeedback({
+        title: 'Reporte Eliminado',
+        message: 'El reporte de mantenimiento fue eliminado del historial.',
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error deleting report:', error);
-      alert('Error al eliminar el reporte.');
+      setFeedback({
+        title: 'Error al Eliminar',
+        message: 'No fue posible eliminar el reporte de mantenimiento.',
+        type: 'error'
+      });
     } finally {
       setDeletingReport(false);
     }
@@ -89,9 +100,18 @@ export default function EquipmentLifeCycle() {
     try {
       await deleteDoc(doc(db, 'transfers', transferToDelete.id));
       setTransferToDelete(null);
+      setFeedback({
+        title: 'Traslado Eliminado',
+        message: 'El registro de traslado fue eliminado del historial.',
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error deleting transfer:', error);
-      alert('Error al eliminar el traslado.');
+      setFeedback({
+        title: 'Error al Eliminar',
+        message: 'No fue posible eliminar el traslado del equipo.',
+        type: 'error'
+      });
     } finally {
       setDeletingTransfer(false);
     }
@@ -295,6 +315,19 @@ export default function EquipmentLifeCycle() {
             <Badge className="bg-sky-500 hover:bg-sky-600 rounded-lg uppercase text-[10px] font-black tracking-widest px-2 py-0.5">
               Activo Fijo
             </Badge>
+            {(equipment.technologyScope || 'biomedical') === 'biomedical' ? (
+              <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg uppercase text-[10px] font-black tracking-widest px-2.5 py-0.5">
+                🩺 Biomédica {equipment.riskClass ? `| Clase ${equipment.riskClass}` : ''}
+              </Badge>
+            ) : equipment.technologyScope === 'computing' ? (
+              <Badge className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg uppercase text-[10px] font-black tracking-widest px-2.5 py-0.5">
+                💻 TIC {equipment.itCategory ? `| ${equipment.itCategory}` : ''}
+              </Badge>
+            ) : (
+              <Badge className="bg-amber-600 hover:bg-amber-700 text-white rounded-lg uppercase text-[10px] font-black tracking-widest px-2.5 py-0.5">
+                ⚡ Industrial {equipment.industrialSystem ? `| ${equipment.industrialSystem}` : ''}
+              </Badge>
+            )}
           </div>
           <p className="text-lg text-slate-500 font-medium">
             {equipment.name} <span className="mx-2 text-slate-300">|</span> {equipment.brand} {equipment.model}
@@ -395,7 +428,11 @@ export default function EquipmentLifeCycle() {
                 generateEquipmentCVPDF(equipToExport, reports, transfers);
               } catch (err) {
                 console.error("Critical error generating PDF:", err);
-                alert("Error al generar el PDF. Revise la consola.");
+                setFeedback({
+                  title: 'Error al Generar Hoja de Vida',
+                  message: 'Ocurrió un error al procesar el archivo PDF. Intente nuevamente.',
+                  type: 'error'
+                });
               } finally {
                 setIsExporting(false);
               }
@@ -417,13 +454,15 @@ export default function EquipmentLifeCycle() {
             {equipment.status === 'paused' ? 'Realizar Mantenimiento para Reanudar' : 'Nueva Intervención'}
           </Button>
 
-          <Button 
-            onClick={() => setShowCalibrationForm(true)}
-            className="rounded-xl shadow-md h-11 px-6 bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200 transition-all hover:scale-[1.02]"
-          >
-            <ShieldCheck className="mr-2 h-4 w-4" />
-            Registrar Calibración
-          </Button>
+          {equipment.technologyScope !== 'computing' && (
+            <Button 
+              onClick={() => setShowCalibrationForm(true)}
+              className="rounded-xl shadow-md h-11 px-6 bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200 transition-all hover:scale-[1.02]"
+            >
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              Registrar Calibración
+            </Button>
+          )}
         </div>
       </div>
 
@@ -529,6 +568,18 @@ export default function EquipmentLifeCycle() {
                    'Fuera de Serv.'}
                 </Badge>
               </div>
+              {equipment.decommissioningActUrl && (
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open(equipment.decommissioningActUrl, '_blank')}
+                    className="w-full rounded-xl border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-rose-500" /> Ver Acta de Baja
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -537,7 +588,9 @@ export default function EquipmentLifeCycle() {
           <Tabs defaultValue="technical" className="w-full">
             <TabsList className="grid w-full grid-cols-5 bg-slate-100 p-1.5 rounded-2xl h-14">
               <TabsTrigger value="technical" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Técnico</TabsTrigger>
-              <TabsTrigger value="regulatory" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Normativo</TabsTrigger>
+              <TabsTrigger value="regulatory" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">
+                {(equipment.technologyScope || 'biomedical') === 'biomedical' ? 'Normativo' : equipment.technologyScope === 'computing' ? 'Red y TIC' : 'Industrial'}
+              </TabsTrigger>
               <TabsTrigger value="history" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Mantos.</TabsTrigger>
               <TabsTrigger value="transfers" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Traslados</TabsTrigger>
               <TabsTrigger value="docs" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Docs</TabsTrigger>
@@ -548,7 +601,11 @@ export default function EquipmentLifeCycle() {
                 <CardHeader className="bg-slate-50/50 border-b px-8 py-5">
                   <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <Wrench className="h-5 w-5 text-primary" />
-                    Especificaciones Técnicas
+                    {(equipment.technologyScope || 'biomedical') === 'biomedical'
+                      ? 'Especificaciones Técnicas Biomédicas'
+                      : equipment.technologyScope === 'computing'
+                      ? 'Especificaciones y Arquitectura TIC'
+                      : 'Especificaciones Operativas Industriales'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-8 grid gap-8 md:grid-cols-2">
@@ -556,21 +613,106 @@ export default function EquipmentLifeCycle() {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha Adquisición</p>
                     <p className="text-xl font-black text-slate-900">{equipment.acquisitionDate || 'N/A'}</p>
                   </div>
-                  <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Clase de Riesgo</p>
-                    <p className="text-xl font-black text-slate-900">{equipment.riskClass}</p>
-                  </div>
-                  <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo Biomédico</p>
-                    <p className="text-xl font-black text-slate-900 capitalize">{equipment.biomedicalType}</p>
-                  </div>
+
+                  {/* CAMPOS BIOMÉDICOS */}
+                  {(equipment.technologyScope || 'biomedical') === 'biomedical' && (
+                    <>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Clase de Riesgo</p>
+                        <p className="text-xl font-black text-slate-900">{equipment.riskClass || 'Clase I'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo Biomédico</p>
+                        <p className="text-xl font-black text-slate-900 capitalize">{equipment.biomedicalType || 'Diagnóstico'}</p>
+                      </div>
+                      {equipment.biomedicalClassification && (
+                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Clasificación Biomédica</p>
+                          <p className="text-xl font-black text-slate-900">{equipment.biomedicalClassification}</p>
+                        </div>
+                      )}
+                      {equipment.physiologicalPrinciple && (
+                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100 md:col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Principio Fisiológico / Uso Clínico</p>
+                          <p className="text-sm font-medium text-slate-700">{equipment.physiologicalPrinciple}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* CAMPOS TIC / CÓMPUTO */}
+                  {equipment.technologyScope === 'computing' && (
+                    <>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoría de Activo TIC</p>
+                        <p className="text-xl font-black text-slate-900">{equipment.itCategory || 'Estación de Trabajo / PC'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Criticidad e Impacto Asistencial</p>
+                        <p className="text-base font-black text-slate-900">{equipment.itCriticality || 'Media (Asistencial / Facturación)'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sistema Operativo</p>
+                        <p className="text-lg font-black text-slate-900">{equipment.operatingSystem || 'No especificado'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hardware (CPU / RAM / Disco)</p>
+                        <p className="text-sm font-bold text-slate-900">
+                          {[equipment.processor, equipment.ramMemory, equipment.storageCapacity].filter(Boolean).join(' | ') || 'No especificado'}
+                        </p>
+                      </div>
+                      {equipment.functionalRole && (
+                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100 md:col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rol Asistencial / Impacto Hospitalario</p>
+                          <p className="text-sm font-medium text-slate-700">{equipment.functionalRole}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* CAMPOS INDUSTRIAL / INFRAESTRUCTURA */}
+                  {equipment.technologyScope === 'infrastructure' && (
+                    <>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subsistema Industrial</p>
+                        <p className="text-xl font-black text-slate-900">{equipment.industrialSystem || 'Generación y Respaldo'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Criticidad Operativa</p>
+                        <p className="text-base font-black text-slate-900">{equipment.industrialCriticality || 'Alta (Soporte Vital)'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capacidad / Potencia</p>
+                        <p className="text-lg font-black text-slate-900">{equipment.capacityPower || 'No especificada'}</p>
+                      </div>
+                      <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tensión de Operación / Fluido</p>
+                        <p className="text-sm font-bold text-slate-900">
+                          {[equipment.operatingVoltage, equipment.fuelOrFluids].filter(Boolean).join(' | ') || 'No especificado'}
+                        </p>
+                      </div>
+                      {equipment.coverageArea && (
+                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100 md:col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Áreas Hospitalarias que Alimenta</p>
+                          <p className="text-sm font-medium text-slate-700">{equipment.coverageArea}</p>
+                        </div>
+                      )}
+                      {equipment.functionalDescription && (
+                        <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100 md:col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Operación y Modo Contingencia</p>
+                          <p className="text-sm font-medium text-slate-700">{equipment.functionalDescription}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
                   <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Frecuencia Manto.</p>
                     <p className="text-xl font-black text-slate-900">Cada {equipment.maintenanceFrequency} meses</p>
                   </div>
                   <div className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Último Manto.</p>
-                    <p className="text-xl font-black text-slate-900">{equipment.lastMaintenance}</p>
+                    <p className="text-xl font-black text-slate-900">{equipment.lastMaintenance || 'N/A'}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -581,47 +723,136 @@ export default function EquipmentLifeCycle() {
                 <CardHeader className="bg-slate-50/50 border-b px-8 py-5">
                   <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="h-5 w-5 text-primary" />
-                    Información Legal y Sanitaria
+                    {(equipment.technologyScope || 'biomedical') === 'biomedical'
+                      ? 'Información Legal y Sanitaria (INVIMA)'
+                      : equipment.technologyScope === 'computing'
+                      ? 'Gestión de Red, Seguridad y Licenciamiento TIC'
+                      : 'Seguridad Industrial, RETIE y Conformidad Técnica'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-8 space-y-6">
-                  <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
-                    <div>
-                      <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Registro INVIMA</p>
-                      <p className="text-lg font-medium text-slate-500">{equipment.registrationInvima}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="rounded-xl border-slate-200"
-                        onClick={() => window.open('https://consultaregistro.invima.gov.co/Consultas/consultas/consreg_encabcum.jsp', '_blank')}
-                      >
-                        <ExternalLink className="mr-2 h-4 w-4" /> Consultar
-                      </Button>
-                      <Badge className="bg-amber-50 text-amber-700 border-amber-200 rounded-xl px-4 py-1.5 font-bold">
-                        Vence: {equipment.registrationExpiration}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
-                    <div>
-                      <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Protocolo de Limpieza</p>
-                      <p className="text-lg font-medium text-slate-500">
-                        {equipment.technicalSheetUrl ? 'Protocolo Asociado' : 'No asociado'}
-                      </p>
-                    </div>
-                    {equipment.technicalSheetUrl && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="rounded-xl border-slate-200"
-                        onClick={() => window.open(equipment.technicalSheetUrl, '_blank')}
-                      >
-                        <ExternalLink className="mr-2 h-4 w-4" /> Ver Protocolo
-                      </Button>
-                    )}
-                  </div>
+                  {/* BIOMÉDICA */}
+                  {(equipment.technologyScope || 'biomedical') === 'biomedical' && (
+                    <>
+                      <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div>
+                          <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Registro INVIMA</p>
+                          <p className="text-lg font-medium text-slate-500">{equipment.registrationInvima || 'Sin registro registrado'}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl border-slate-200"
+                            onClick={() => window.open('https://consultaregistro.invima.gov.co/Consultas/consultas/consreg_encabcum.jsp', '_blank')}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" /> Consultar
+                          </Button>
+                          {equipment.registrationExpiration && (
+                            <Badge className="bg-amber-50 text-amber-700 border-amber-200 rounded-xl px-4 py-1.5 font-bold">
+                              Vence: {equipment.registrationExpiration}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div>
+                          <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Protocolo de Limpieza y Desinfección</p>
+                          <p className="text-lg font-medium text-slate-500">
+                            {equipment.technicalSheetUrl ? 'Protocolo Asociado' : 'No asociado'}
+                          </p>
+                        </div>
+                        {equipment.technicalSheetUrl && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl border-slate-200"
+                            onClick={() => window.open(equipment.technicalSheetUrl, '_blank')}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" /> Ver Protocolo
+                          </Button>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* TIC */}
+                  {equipment.technologyScope === 'computing' && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Dirección IP Asignada</p>
+                          <p className="text-lg font-bold text-slate-900">{equipment.ipAddress || 'DHCP Reservado / Dinámico'}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Dirección Física (MAC)</p>
+                          <p className="text-lg font-bold text-slate-900">{equipment.macAddress || 'No registrada'}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Conexión de Red</p>
+                          <p className="text-base font-bold text-slate-900">{equipment.networkConnection || 'Cableado (LAN)'}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Licencia de Software</p>
+                          <p className="text-base font-bold text-slate-900">{equipment.licenseStatus || 'Licencia Estándar Activa'}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors md:col-span-2">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Software de Seguridad / Antivirus</p>
+                          <p className="text-base font-bold text-slate-900">{equipment.antivirusSoftware || 'Protección de Endpoint Centralizada'}</p>
+                        </div>
+                      </div>
+
+                      {equipment.technicalSheetUrl && (
+                        <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <div>
+                            <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Políticas y Seguridad Digital</p>
+                            <p className="text-sm font-medium text-slate-500">Documento técnico asociado en Drive</p>
+                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl border-slate-200"
+                            onClick={() => window.open(equipment.technicalSheetUrl, '_blank')}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" /> Ver Documento
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* INDUSTRIAL */}
+                  {equipment.technologyScope === 'infrastructure' && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Normativa Técnica Aplicable</p>
+                          <p className="text-lg font-bold text-slate-900">{equipment.technicalNorm || 'RETIE / NFPA 99 / NTC 2050'}</p>
+                        </div>
+                        <div className="p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-wider">No. Dictamen / Certificado</p>
+                          <p className="text-lg font-bold text-slate-900">{equipment.certCertificateNumber || 'Dictamen Conforme'}</p>
+                        </div>
+                      </div>
+
+                      {equipment.technicalSheetUrl && (
+                        <div className="flex justify-between items-center p-5 rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                          <div>
+                            <p className="text-sm font-black text-slate-900 uppercase tracking-tighter">Protocolo de Contingencia y Seguridad</p>
+                            <p className="text-sm font-medium text-slate-500">Documento técnico y de contingencia en Drive</p>
+                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="rounded-xl border-slate-200"
+                            onClick={() => window.open(equipment.technicalSheetUrl, '_blank')}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" /> Ver Protocolo
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -827,6 +1058,54 @@ export default function EquipmentLifeCycle() {
             </TabsContent>
 
             <TabsContent value="docs" className="space-y-6 pt-6">
+              {(equipment.decommissioningActUrl || equipment.status === 'baja' || equipment.status === 'baja_repuestos') && (
+                <div className="mb-2">
+                  {equipment.decommissioningActUrl ? (
+                    <Card 
+                      onClick={() => window.open(equipment.decommissioningActUrl, '_blank')}
+                      className="group cursor-pointer border-rose-200 bg-gradient-to-r from-rose-50/80 via-white to-rose-50/40 shadow-lg shadow-rose-100 rounded-3xl overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 border"
+                    >
+                      <CardContent className="flex items-center justify-between p-6">
+                        <div className="flex items-center gap-5">
+                          <div className="p-4 bg-rose-100 rounded-2xl shadow-inner group-hover:bg-rose-200 transition-colors">
+                            <FileText className="h-8 w-8 text-rose-600" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-lg font-black text-rose-950">Acta de Baja Institucional</p>
+                              <Badge className="bg-rose-600 text-white font-black text-[9px] uppercase tracking-wider">
+                                {equipment.status === 'baja_repuestos' ? 'Repuestos' : 'Definitiva'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs font-bold text-rose-700/80">
+                              {equipment.decommissioningDate ? `Fecha de Baja: ${equipment.decommissioningDate}` : 'Documento Soporte de Desvinculación'}
+                            </p>
+                            {equipment.decommissioningReason && (
+                              <p className="text-xs text-slate-500 font-medium mt-1">
+                                Motivo: <span className="font-semibold text-slate-700">{equipment.decommissioningReason}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="font-bold text-rose-600 group-hover:bg-rose-100/60 rounded-xl"
+                        >
+                          <ExternalLink className="h-4 w-4 mr-2" /> Ver Documento
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card className="border-dashed border-2 border-rose-200 bg-rose-50/30 rounded-3xl p-6 flex flex-col items-center justify-center text-center">
+                      <AlertTriangle className="h-8 w-8 text-rose-400 mb-2" />
+                      <p className="text-sm font-bold text-rose-800 uppercase tracking-tight">Equipo en Estado de Baja</p>
+                      <p className="text-xs text-rose-600 font-medium">Actualmente no cuenta con acta de baja registrada.</p>
+                    </Card>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-6 md:grid-cols-2">
                 {equipment.manualUrl ? (
                   <Card 
@@ -885,7 +1164,11 @@ export default function EquipmentLifeCycle() {
                       return (
                       <Card 
                         key={idx}
-                        onClick={() => isValidUrl ? window.open(annex.url, '_blank') : alert('El documento original no logró enlazarse con Google Drive. Por favor vuelva a subir este anexo desde la opción Editar Equipo.')}
+                        onClick={() => isValidUrl ? window.open(annex.url, '_blank') : setFeedback({
+                          title: 'Enlace no disponible',
+                          message: 'El documento original no logró enlazarse con Google Drive. Por favor vuelva a subir este anexo desde la opción Editar Equipo.',
+                          type: 'error'
+                        })}
                         className={`group border-none shadow-lg shadow-slate-200/50 rounded-3xl overflow-hidden transition-all hover:shadow-xl hover:-translate-y-1 ${isValidUrl ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'}`}
                       >
                         <CardContent className="flex items-center gap-4 p-5">
@@ -994,6 +1277,17 @@ export default function EquipmentLifeCycle() {
         existingEvaluation={obsolescenceEvaluation}
         onSaved={(saved) => setObsolescenceEvaluation(saved)}
       />
+
+      {/* In-app feedback modal */}
+      {feedback && (
+        <FeedbackModal
+          isOpen={!!feedback}
+          onClose={() => setFeedback(null)}
+          title={feedback.title}
+          message={feedback.message}
+          type={feedback.type}
+        />
+      )}
     </div>
   );
 }

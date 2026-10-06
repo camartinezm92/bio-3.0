@@ -16,6 +16,7 @@ import { db } from '@/lib/firebase';
 import { Equipment, ComplianceSubmission, Service, AlertConfig } from '@/types';
 import { differenceInDays, parseISO, isAfter, isBefore, addDays, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 import { 
   Sheet, 
   SheetContent, 
@@ -51,6 +52,7 @@ const DEFAULT_CONFIG: AlertConfig = {
 
 export default function Alerts() {
   const navigate = useNavigate();
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
   const [loading, setLoading] = React.useState(true);
   const [showConfig, setShowConfig] = React.useState(false);
   const [showOmitted, setShowOmitted] = React.useState(false);
@@ -98,49 +100,53 @@ export default function Alerts() {
     const now = new Date();
 
     const unsubEquipment = onSnapshot(collection(db, 'equipment'), (snapshot) => {
-      const equipmentData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Equipment[];
+      const allEquipment = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Equipment[];
+      const equipmentData = filterByScope(allEquipment);
       const eqAlerts: AppAlert[] = [];
 
       equipmentData.forEach(eq => {
         // Skip decommissioned equipment
         if (['baja', 'baja_repuestos'].includes(eq.status)) return;
+        const eqScope = eq.technologyScope || 'biomedical';
 
-        // 1. Check INVIMA Expiration
-        if (eq.registrationExpiration) {
-          const expiration = parseISO(eq.registrationExpiration);
-          const diff = differenceInDays(expiration, now);
+        // 1. Check INVIMA Expiration (Only for biomedical technology)
+        if (eqScope === 'biomedical') {
+          if (eq.registrationExpiration) {
+            const expiration = parseISO(eq.registrationExpiration);
+            const diff = differenceInDays(expiration, now);
 
-          if (diff <= (config.invimaLeadDays || 30)) {
+            if (diff <= (config.invimaLeadDays || 30)) {
+              eqAlerts.push({
+                id: `invima-${eq.id}`,
+                type: 'invima',
+                severity: diff <= 5 ? 'critical' : 'warning',
+                title: 'Registro INVIMA Vencido o Próximo',
+                equipment: `${eq.name} (${eq.brand})`,
+                service: eq.serviceName || 'Sin Servicio',
+                targetId: eq.id,
+                daysText: diff < 0 ? `Vencido hace ${Math.abs(diff)} días` : (diff === 0 ? 'Vence hoy' : `Vence en ${diff} días`),
+                description: diff < 0 
+                  ? 'El registro sanitario ha expirado. El equipo no debe usarse hasta renovar.' 
+                  : 'El registro sanitario está por vencer. Iniciar trámite de renovación.',
+                icon: FileWarning,
+                color: diff <= 5 ? 'destructive' : 'amber'
+              });
+            }
+          } else if (!eq.registrationInvima) {
             eqAlerts.push({
-              id: `invima-${eq.id}`,
+              id: `invima-missing-${eq.id}`,
               type: 'invima',
-              severity: diff <= 5 ? 'critical' : 'warning',
-              title: 'Registro INVIMA Vencido o Próximo',
+              severity: 'warning',
+              title: 'Falta Registro INVIMA',
               equipment: `${eq.name} (${eq.brand})`,
               service: eq.serviceName || 'Sin Servicio',
               targetId: eq.id,
-              daysText: diff < 0 ? `Vencido hace ${Math.abs(diff)} días` : (diff === 0 ? 'Vence hoy' : `Vence en ${diff} días`),
-              description: diff < 0 
-                ? 'El registro sanitario ha expirado. El equipo no debe usarse hasta renovar.' 
-                : 'El registro sanitario está por vencer. Iniciar trámite de renovación.',
-              icon: FileWarning,
-              color: diff <= 5 ? 'destructive' : 'amber'
+              daysText: 'Pendiente',
+              description: 'Este equipo médico no cuenta con registro INVIMA registrado en el sistema.',
+              icon: AlertTriangle,
+              color: 'amber'
             });
           }
-        } else if (!eq.registrationInvima) {
-          eqAlerts.push({
-            id: `invima-missing-${eq.id}`,
-            type: 'invima',
-            severity: 'warning',
-            title: 'Falta Registro INVIMA',
-            equipment: `${eq.name} (${eq.brand})`,
-            service: eq.serviceName || 'Sin Servicio',
-            targetId: eq.id,
-            daysText: 'Pendiente',
-            description: 'Este equipo no cuenta con registro INVIMA registrado en el sistema.',
-            icon: AlertTriangle,
-            color: 'amber'
-          });
         }
 
         // 2. Check Preventive Maintenance
@@ -169,7 +175,9 @@ export default function Alerts() {
       });
 
       setAlerts(prev => {
-        const otherAlerts = prev.filter(a => a.type === 'checklist');
+        const otherAlerts = (scope === 'biomedical' || scope === 'all')
+          ? prev.filter(a => a.type === 'checklist')
+          : [];
         return [...eqAlerts, ...otherAlerts].sort((a, b) => b.severity === 'critical' ? 1 : -1);
       });
       setLoading(false);
@@ -178,7 +186,7 @@ export default function Alerts() {
       setLoading(false);
     });
 
-    // 3. Check Compliance Checklists (Trimestral)
+    // 3. Check Compliance Checklists (Trimestral - Scoped to the active technology area)
     const unsubServices = onSnapshot(collection(db, 'services'), (servicesSnap) => {
       let services = servicesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Service[];
       
@@ -187,44 +195,60 @@ export default function Alerts() {
           const submissions = subsSnap.docs.map(doc => doc.data() as ComplianceSubmission);
           const checklistAlerts: AppAlert[] = [];
 
-          resolvedServices.forEach(service => {
-            const serviceSubs = submissions
-              .filter(s => s.serviceId === service.id)
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            
-            const latestSub = serviceSubs[0];
-            let needsChecklist = false;
-            let daysText = '';
-            let severity: 'critical' | 'warning' = 'warning';
+          const targetScopes: Array<'biomedical' | 'computing' | 'infrastructure'> = 
+            scope === 'all' 
+              ? ['biomedical', 'computing', 'infrastructure'] 
+              : [scope as 'biomedical' | 'computing' | 'infrastructure'];
 
-            if (!latestSub) {
-              needsChecklist = true;
-              daysText = 'Nunca realizado';
-              severity = 'critical';
-            } else {
-              const nextReview = parseISO(latestSub.nextReviewDate);
-              const diff = differenceInDays(nextReview, now);
-              if (diff <= (config.checklistLeadDays || 5)) {
+          targetScopes.forEach(currScope => {
+            const scopeLabel = currScope === 'computing' ? 'TIC' : currScope === 'infrastructure' ? 'Infraestructura' : 'Biomédica';
+            const scopeStandard = currScope === 'computing' 
+              ? 'Historia Clínica, Registros y Seguridad TIC (Res. 3100)' 
+              : currScope === 'infrastructure' 
+              ? 'Infraestructura, Redes Eléctricas RETIE y Gases (Res. 3100)' 
+              : 'Dotación y Equipamiento Biomédico (Res. 3100)';
+
+            resolvedServices.forEach(service => {
+              const serviceSubs = submissions
+                .filter(s => s.serviceId === service.id && ((s.technologyScope || 'biomedical') === currScope))
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              
+              const latestSub = serviceSubs[0];
+              let needsChecklist = false;
+              let daysText = '';
+              let severity: 'critical' | 'warning' = 'warning';
+
+              if (!latestSub) {
                 needsChecklist = true;
-                severity = diff < 0 ? 'critical' : 'warning';
-                daysText = diff < 0 ? `Vencido hace ${Math.abs(diff)} días` : (diff === 0 ? 'Vence hoy' : `Vence en ${diff} días`);
+                daysText = 'Nunca realizado';
+                severity = 'critical';
+              } else {
+                const nextReview = parseISO(latestSub.nextReviewDate);
+                const diff = differenceInDays(nextReview, now);
+                if (diff <= (config.checklistLeadDays || 5)) {
+                  needsChecklist = true;
+                  severity = diff < 0 ? 'critical' : 'warning';
+                  daysText = diff < 0 ? `Vencido hace ${Math.abs(diff)} días` : (diff === 0 ? 'Vence hoy' : `Vence en ${diff} días`);
+                }
               }
-            }
 
-            if (needsChecklist) {
-              checklistAlerts.push({
-                id: `checklist-${service.id}`,
-                type: 'checklist',
-                severity: severity,
-                title: 'Lista de Chequeo Normativa Pendiente',
-                service: service.name,
-                targetId: service.id,
-                daysText: daysText,
-                description: `El servicio de ${service.name} requiere su verificación trimestral de estándares de habilitación (Res. 3100).`,
-                icon: ClipboardCheck,
-                color: severity === 'critical' ? 'destructive' : 'amber'
-              });
-            }
+              if (needsChecklist) {
+                const alertItem: AppAlert = {
+                  id: `checklist-${currScope}-${service.id}`,
+                  type: 'checklist',
+                  severity: severity,
+                  title: `Chequeo ${scopeLabel} Pendiente (Res. 3100)`,
+                  service: service.name,
+                  targetId: service.id,
+                  daysText: daysText,
+                  description: `El servicio de ${service.name} requiere su verificación trimestral de ${scopeStandard}.`,
+                  icon: ClipboardCheck,
+                  color: severity === 'critical' ? 'destructive' : 'amber'
+                };
+                (alertItem as any).scopeParam = currScope;
+                checklistAlerts.push(alertItem);
+              }
+            });
           });
 
           setAlerts(prev => {
@@ -255,7 +279,7 @@ export default function Alerts() {
       unsubEquipment();
       unsubServices();
     };
-  }, [config]);
+  }, [config, scope, filterByScope]);
 
   const now = Date.now();
   const activeAlerts = alerts.filter(a => {
@@ -270,7 +294,8 @@ export default function Alerts() {
 
   const handleAction = (alert: AppAlert) => {
     if (alert.type === 'checklist') {
-      navigate(`/compliance/checklist/${alert.targetId}`);
+      const scopeParam = (alert as any).scopeParam ? `?scope=${(alert as any).scopeParam}` : '';
+      navigate(`/compliance/checklist/${alert.targetId}${scopeParam}`);
     } else {
       navigate(`/equipment/${alert.targetId}`);
     }
@@ -299,11 +324,18 @@ export default function Alerts() {
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex items-end justify-between border-b pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b pb-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">Alertas Activas</h1>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">
+            Alertas Activas - <span className="text-primary">{scopeConfig.label}</span>
+          </h1>
           <p className="text-sm text-slate-500 font-bold mt-1">
-            Gestión de vencimientos críticos y estándares técnicos.
+            Gestión de vencimientos críticos y estándares técnicos para {scopeConfig.shortLabel.toLowerCase()}.
           </p>
         </div>
         <div className="flex gap-2">

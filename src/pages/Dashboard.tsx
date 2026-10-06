@@ -25,6 +25,7 @@ import { collection, onSnapshot, query, where, limit, orderBy, doc, getDoc } fro
 import { db } from '@/lib/firebase';
 import { Equipment, MaintenanceReport, Service, ComplianceSubmission, AlertConfig } from '@/types';
 import { parseISO, differenceInDays } from 'date-fns';
+import { useTechnologyScope } from '@/lib/TechnologyScopeContext';
 
 const DEFAULT_CONFIG: AlertConfig = {
   invimaLeadDays: 30,
@@ -36,11 +37,11 @@ const DEFAULT_CONFIG: AlertConfig = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { scope, scopeConfig, filterByScope } = useTechnologyScope();
   const [showOpDetail, setShowOpDetail] = React.useState(false);
   const [equipment, setEquipment] = React.useState<Equipment[]>([]);
   const [services, setServices] = React.useState<Service[]>([]);
   const [submissions, setSubmissions] = React.useState<ComplianceSubmission[]>([]);
-  const [pendingMaintenance, setPendingMaintenance] = React.useState<Equipment[]>([]);
   const [recentReports, setRecentReports] = React.useState<MaintenanceReport[]>([]);
   const [config, setConfig] = React.useState<AlertConfig>(DEFAULT_CONFIG);
   const [totalAlertCount, setTotalAlertCount] = React.useState(0);
@@ -71,15 +72,6 @@ export default function Dashboard() {
     const unsubEquip = onSnapshot(collection(db, 'equipment'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as Equipment[];
       setEquipment(data);
-      
-      const pendingManto = data.filter(e => {
-        if (!e.nextMaintenance) return false;
-        if (['baja', 'baja_repuestos'].includes(e.status)) return false;
-        const nextDate = new Date(e.nextMaintenance);
-        const diffDays = Math.ceil((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        return diffDays < 7;
-      });
-      setPendingMaintenance(pendingManto);
     }, (error) => {
       console.warn("Dashboard equipment snapshot error:", error);
     });
@@ -104,7 +96,7 @@ export default function Dashboard() {
     const qReports = query(
       collection(db, 'reports'), 
       orderBy('date', 'desc'), 
-      limit(5)
+      limit(20)
     );
     const unsubReports = onSnapshot(qReports, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })) as MaintenanceReport[];
@@ -121,28 +113,59 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Compute total alert count matching Alerts page cards
+  // Filter equipment based on active technology scope
+  const scopedEquipment = React.useMemo(() => {
+    return filterByScope(equipment);
+  }, [equipment, filterByScope]);
+
+  // Compute pending maintenance STRICTLY scoped to active technology area
+  const pendingMaintenance = React.useMemo(() => {
+    const now = new Date();
+    return scopedEquipment.filter(e => {
+      if (!e.nextMaintenance) return false;
+      if (['baja', 'baja_repuestos'].includes(e.status)) return false;
+      const nextDate = new Date(e.nextMaintenance);
+      const diffDays = Math.ceil((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays < 7;
+    });
+  }, [scopedEquipment]);
+
+  // Filter recent reports strictly by the active scope
+  const scopedRecentReports = React.useMemo(() => {
+    if (scope === 'all') return recentReports.slice(0, 5);
+    const scopedEquipmentIds = new Set(scopedEquipment.map(e => e.id));
+    return recentReports.filter(r => {
+      const repScope = (r as any).technologyScope;
+      if (repScope) return repScope === scope;
+      return scopedEquipmentIds.has(r.equipmentId);
+    }).slice(0, 5);
+  }, [recentReports, scopedEquipment, scope]);
+
+  // Compute total alert count matching Alerts page cards with strict area isolation
   React.useEffect(() => {
     const now = new Date();
     const currentTime = now.getTime();
     let count = 0;
 
-    // A. Equipment Alerts
-    equipment.forEach(eq => {
+    // A. Equipment Alerts (strictly scoped)
+    scopedEquipment.forEach(eq => {
       // Skip decommissioned equipment
       if (['baja', 'baja_repuestos'].includes(eq.status)) return;
 
-      // INVIMA
-      if (eq.registrationExpiration) {
-        const expiration = parseISO(eq.registrationExpiration);
-        const diff = differenceInDays(expiration, now);
-        if (diff <= (config.invimaLeadDays || 30)) {
-          const alertId = `invima-${eq.id}`;
+      // INVIMA (Only relevant for biomedical technology)
+      const eqScope = eq.technologyScope || 'biomedical';
+      if (eqScope === 'biomedical') {
+        if (eq.registrationExpiration) {
+          const expiration = parseISO(eq.registrationExpiration);
+          const diff = differenceInDays(expiration, now);
+          if (diff <= (config.invimaLeadDays || 30)) {
+            const alertId = `invima-${eq.id}`;
+            if (!dismissedMap[alertId] || currentTime > dismissedMap[alertId]) count++;
+          }
+        } else if (!eq.registrationInvima) {
+          const alertId = `invima-missing-${eq.id}`;
           if (!dismissedMap[alertId] || currentTime > dismissedMap[alertId]) count++;
         }
-      } else if (!eq.registrationInvima) {
-        const alertId = `invima-missing-${eq.id}`;
-        if (!dismissedMap[alertId] || currentTime > dismissedMap[alertId]) count++;
       }
 
       // Maintenance
@@ -156,37 +179,44 @@ export default function Dashboard() {
       }
     });
 
-    // B. Checklist Alerts
-    services.forEach(service => {
-      const serviceSubs = submissions
-        .filter(s => s.serviceId === service.id)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
-      const latestSub = serviceSubs[0];
-      let needsChecklist = false;
+    // B. Checklist Alerts (strictly scoped to the active technology scope)
+    const targetScopes: Array<'biomedical' | 'computing' | 'infrastructure'> = 
+      scope === 'all' 
+        ? ['biomedical', 'computing', 'infrastructure'] 
+        : [scope as 'biomedical' | 'computing' | 'infrastructure'];
 
-      if (!latestSub) {
-        needsChecklist = true;
-      } else {
-        const nextReview = parseISO(latestSub.nextReviewDate);
-        const diff = differenceInDays(nextReview, now);
-        if (diff <= (config.checklistLeadDays || 5)) {
+    targetScopes.forEach(currScope => {
+      services.forEach(service => {
+        const serviceSubs = submissions
+          .filter(s => s.serviceId === service.id && ((s.technologyScope || 'biomedical') === currScope))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        const latestSub = serviceSubs[0];
+        let needsChecklist = false;
+
+        if (!latestSub) {
           needsChecklist = true;
+        } else {
+          const nextReview = parseISO(latestSub.nextReviewDate);
+          const diff = differenceInDays(nextReview, now);
+          if (diff <= (config.checklistLeadDays || 5)) {
+            needsChecklist = true;
+          }
         }
-      }
 
-      if (needsChecklist) {
-        const alertId = `checklist-${service.id}`;
-        if (!dismissedMap[alertId] || currentTime > dismissedMap[alertId]) count++;
-      }
+        if (needsChecklist) {
+          const alertId = `checklist-${currScope}-${service.id}`;
+          if (!dismissedMap[alertId] || currentTime > dismissedMap[alertId]) count++;
+        }
+      });
     });
 
     setTotalAlertCount(count);
-  }, [equipment, services, submissions, config, dismissedMap]);
+  }, [scopedEquipment, services, submissions, config, dismissedMap, scope]);
 
-  const totalEquip = equipment.length;
-  const outOfService = equipment.filter(e => e.status === 'out_of_service' || e.status === 'maintenance' || e.status === 'paused');
-  const decommissioned = equipment.filter(e => e.status === 'baja' || e.status === 'baja_repuestos');
+  const totalEquip = scopedEquipment.length;
+  const outOfService = scopedEquipment.filter(e => e.status === 'out_of_service' || e.status === 'maintenance' || e.status === 'paused');
+  const decommissioned = scopedEquipment.filter(e => e.status === 'baja' || e.status === 'baja_repuestos');
   const activeEquipCount = totalEquip - decommissioned.length;
   const operationalPercent = activeEquipCount > 0 ? Math.round(((activeEquipCount - outOfService.length) / activeEquipCount) * 100) : 100;
 
@@ -231,13 +261,28 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
-      <div className="flex items-end justify-between border-b pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b pb-6">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900">Tablero de Control</h1>
-          <p className="text-lg text-slate-500 mt-2">
-            Resumen del estado tecnológico y operativo de la institución.
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border", scopeConfig.badgeBg, scopeConfig.badgeBorder, scopeConfig.textColor)}>
+              {scopeConfig.shortLabel}
+            </span>
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+            Tablero de Control - <span className="text-primary">{scopeConfig.label}</span>
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-medium">
+            {scopeConfig.description}
           </p>
         </div>
+
+        <Button
+          variant="outline"
+          onClick={() => navigate('/portal')}
+          className="rounded-xl border-slate-200 text-xs font-bold hover:bg-slate-50 shrink-0"
+        >
+          Cambiar de Área en el Portal →
+        </Button>
       </div>
 
       {/* Acceso Directo a la Matriz de Obsolescencia Institucional (GTE-MTX-001) */}
@@ -366,8 +411,8 @@ export default function Dashboard() {
                     </Badge>
                   </div>
                 ))
-              ) : recentReports.length > 0 ? (
-                recentReports.map((r) => (
+              ) : scopedRecentReports.length > 0 ? (
+                scopedRecentReports.map((r) => (
                   <div key={r.id} className="flex items-center gap-5 rounded-2xl border border-slate-100 p-5 transition-colors hover:bg-slate-50/50">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 shadow-inner">
                       <ClipboardList className="h-6 w-6 text-sky-600" />
