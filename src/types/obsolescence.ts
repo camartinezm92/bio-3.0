@@ -181,3 +181,80 @@ export interface ObsolescenceIndicators {
   byHorizonCount: Record<ObsolescenceHorizon, number>;
   totalEstimatedRenewalBudget: number;
 }
+
+export type ObsolescenceCaseStatus = 'abierto' | 'en_gestion' | 'cerrado';
+
+export type ObsolescenceManagementType = 
+  | 'Renovación / Reposición'
+  | 'Repotenciación / Overhaul'
+  | 'Mantenimiento Correctivo Mayor / Actualización'
+  | 'Baja y Retiro Definitivo'
+  | 'Mitigación y Reasignación';
+
+export interface ObsolescenceCaseIntervention {
+  id: string;
+  date: string; // ISO string
+  type: 'cotizacion' | 'mantenimiento' | 'actualizacion' | 'reemplazo' | 'inspeccion' | 'otro';
+  title: string;
+  description: string;
+  provider?: string;
+  documentNumber?: string; // Ej: COT-2024-08, OT-552, FAC-893
+  cost?: number;
+  fileUrl?: string; // Link Drive / Adjunto
+  fileName?: string;
+  recordedBy?: string;
+}
+
+export interface ObsolescenceCaseClosure {
+  closedAt: string; // ISO date
+  closedBy: string; // Nombre del responsable
+  closedByRole?: string; // Cargo (e.g. "Ingeniero Biomédico")
+  closureType: 
+    | 'Renovación / Reposición Total'
+    | 'Repotenciación / Actualización Exitosa'
+    | 'Baja y Desincorporación'
+    | 'Riesgo Técnico Mitigado';
+  technicalConclusion: string; // Justificación y dictamen final detallado
+  resultingStatus?: string; // Estado del equipo tras el cierre (ej: 'active', 'baja')
+  newEvaluationIndex?: number; // Nuevo índice recalculado
+  newLevel?: ObsolescenceLevel; // Nuevo nivel de riesgo
+  pdfUrl?: string; // Link al acta PDF en Google Drive
+  driveFileId?: string;
+}
+
+export interface ObsolescenceCase {
+  id: string;
+  caseNumber: string; // e.g. "CASO-OBS-2026-001"
+  equipmentId: string;
+  equipmentName: string;
+  equipmentCode: string; // Placa / Activo Fijo
+  brand: string;
+  model: string;
+  serial: string;
+  serviceId: string;
+  serviceName: string;
+  technologyScope?: 'biomedical' | 'computing' | 'infrastructure' | 'other';
+  status: ObsolescenceCaseStatus;
+  managementType: ObsolescenceManagementType;
+  title: string;
+  justification: string;
+  priority: 'Baja' | 'Media' | 'Alta' | 'Crítica';
+  initialEvaluation: {
+    evaluationId?: string;
+    index: number;
+    level: ObsolescenceLevel;
+    priority: string;
+    action: string;
+    evaluationDate: string;
+    criticalDimensions?: string[];
+  };
+  interventions: ObsolescenceCaseIntervention[];
+  resolution?: ObsolescenceCaseClosure;
+  totalCost?: number;
+  pdfUrl?: string;
+  driveFileId?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

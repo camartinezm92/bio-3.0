@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Equipment, MaintenanceReport, ComplianceSubmission, Transfer } from '@/types';
+import { Equipment, MaintenanceReport, ComplianceSubmission, Transfer, ObsolescenceCase, ObsolescenceCaseClosure } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { resolveEquipmentScope, getEquipmentCVHeaders, getMaintenanceReportHeaders } from '@/lib/scopeUtils';
@@ -1442,3 +1442,263 @@ export const generateGOServicePDF = (data: any, returnBase64?: boolean) => {
     doc.save(`GOS_Reporte_${data.equipoSerial}_${data.fechaServicio}.pdf`);
   }
 };
+
+export const generateObsolescenceCasePDF = (obsCase?: ObsolescenceCase | null, returnBase64?: boolean) => {
+  if (!obsCase) {
+    console.warn("generateObsolescenceCasePDF: No obsCase provided, operation skipped safely.");
+    return returnBase64 ? '' : undefined;
+  }
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - (margin * 2);
+
+  const resolution: Partial<ObsolescenceCaseClosure> = obsCase.resolution || {};
+  let formattedClosedAt = format(new Date(), 'yyyy-MM-dd');
+  if (resolution.closedAt) {
+    try {
+      const parsed = new Date(resolution.closedAt);
+      if (!isNaN(parsed.getTime())) {
+        formattedClosedAt = format(parsed, 'yyyy-MM-dd');
+      }
+    } catch (e) {}
+  }
+
+  // 1. Header Table (Institucional UCI Honda)
+  autoTable(doc, {
+    startY: margin,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: {
+      0: { cellWidth: 35, halign: 'center', valign: 'middle' },
+      1: { cellWidth: 'auto' },
+      2: { cellWidth: 'auto' },
+      3: { cellWidth: 'auto' }
+    },
+    body: [
+      [
+        { content: '', rowSpan: 5 },
+        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } }
+      ],
+      [
+        { content: 'ACTA DE CIERRE Y GESTIÓN DE OBSOLESCENCIA TECNOLÓGICA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 } }
+      ],
+      [
+        { content: 'Macroproceso: Gestión de Tecnología e Infraestructura', styles: { fontStyle: 'bold' } },
+        { content: 'Proceso: Gestión de Tecnología Biomédica y Hospitalaria', colSpan: 2, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'Responsable: Líder de Ingeniería Biomédica', styles: { fontStyle: 'bold' } },
+        { content: `Fecha de Cierre: ${formattedClosedAt}`, styles: { fontStyle: 'bold' } },
+        { content: `Código: GTE-FOR-OBS-001 | Versión: 01`, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: obsCase.status === 'cerrado' ? 'Estado: CASO CERRADO Y RESUELTO' : 'Estado: EN PROCESO / SEGUIMIENTO', styles: { fontStyle: 'bold', textColor: obsCase.status === 'cerrado' ? [16, 120, 60] : [180, 100, 10] } },
+        { content: `Radicado Caso: ${obsCase.caseNumber || 'N/A'}`, colSpan: 2, styles: { fontStyle: 'bold' } }
+      ]
+    ],
+    didDrawCell: (data) => {
+      if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
+        try {
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 2, 31, 20);
+        } catch (e) { }
+      }
+    }
+  });
+
+  let currentY = (doc as any).lastAutoTable.finalY + 3;
+
+  // 2. Información del Activo / Tecnología
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [[{ content: '1. IDENTIFICACIÓN DE LA TECNOLOGÍA / ACTIVO GESTIONADO', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold' } }]],
+    body: [
+      [
+        { content: 'Equipo / Tecnología:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: obsCase.equipmentName || 'N/A' },
+        { content: 'Placa / Activo Fijo:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: obsCase.equipmentCode || 'N/A' }
+      ],
+      [
+        { content: 'Marca:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.brand || 'N/A' },
+        { content: 'Modelo:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.model || 'N/A' }
+      ],
+      [
+        { content: 'Número de Serie:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.serial || 'N/A' },
+        { content: 'Servicio Clínico / Área:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.serviceName || 'N/A' }
+      ],
+      [
+        { content: 'Área Tecnológica:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.technologyScope === 'computing' ? 'Cómputo / TIC' : obsCase.technologyScope === 'infrastructure' ? 'Infraestructura / Industrial' : 'Biomédica' },
+        { content: 'Modalidad de Gestión:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.managementType || 'N/A', styles: { fontStyle: 'bold' } }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 3;
+
+  // 3. Antecedente de Obsolescencia y Justificación Inicial
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [[{ content: '2. ANTECEDENTES Y DIAGNÓSTICO DE OBSOLESCENCIA INICIAL', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold' } }]],
+    body: [
+      [
+        { content: 'Nivel Obsolescencia Inicial:', styles: { fontStyle: 'bold', cellWidth: 45 } },
+        { content: `${obsCase.initialEvaluation?.level || 'N/A'} (Índice: ${obsCase.initialEvaluation?.index || 'N/A'} / 5.0)`, styles: { fontStyle: 'bold', textColor: [180, 20, 20] } },
+        { content: 'Fecha Evaluación Inicial:', styles: { fontStyle: 'bold', cellWidth: 40 } },
+        { content: obsCase.initialEvaluation?.evaluationDate || 'N/A' }
+      ],
+      [
+        { content: 'Acción Inicial Sugerida:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.initialEvaluation?.action || 'N/A', colSpan: 3 }
+      ],
+      [
+        { content: 'Título del Caso:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.title || 'N/A', colSpan: 3, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'Justificación / Causa Crítica:', styles: { fontStyle: 'bold' } },
+        { content: obsCase.justification || 'Sin justificación registrada.', colSpan: 3 }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 3;
+
+  // 4. Trazabilidad de Acciones y Evidencias Desarrolladas
+  const interventionRows = (obsCase.interventions || []).map((it, idx) => [
+    idx + 1,
+    it.date || '',
+    it.type.toUpperCase(),
+    it.title + (it.description ? `\n${it.description}` : ''),
+    it.provider || 'Interno / N/A',
+    it.documentNumber || 'N/A',
+    it.cost ? `$${it.cost.toLocaleString('es-CO')} COP` : '$0'
+  ]);
+
+  if (interventionRows.length === 0) {
+    interventionRows.push(['-', '-', 'GESTIÓN', 'No se detallaron intervenciones intermedias.', '-', '-', '$0']);
+  }
+
+  const totalCost = (obsCase.interventions || []).reduce((acc, curr) => acc + (curr.cost || 0), 0);
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 6.8, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: '3. TRAZABILIDAD DE ACCIONES, COTIZACIONES Y MANTENIMIENTOS DESARROLLADOS', colSpan: 7, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', fontSize: 7 } }],
+      [
+        { content: '#', styles: { halign: 'center', cellWidth: 8 } },
+        { content: 'Fecha', styles: { halign: 'center', cellWidth: 20 } },
+        { content: 'Tipo', styles: { halign: 'center', cellWidth: 24 } },
+        { content: 'Actividad / Detalle Técnico', styles: { halign: 'left' } },
+        { content: 'Proveedor / Taller', styles: { halign: 'center', cellWidth: 32 } },
+        { content: 'Soporte / Doc.', styles: { halign: 'center', cellWidth: 24 } },
+        { content: 'Costo Ejecutado', styles: { halign: 'right', cellWidth: 26 } }
+      ]
+    ],
+    body: interventionRows,
+    foot: [
+      [
+        { content: 'TOTAL INVERSIÓN / GESTIÓN ECONÓMICA EJECUTADA:', colSpan: 6, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } },
+        { content: `$${totalCost.toLocaleString('es-CO')} COP`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5, textColor: [0, 50, 150] } }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 3;
+
+  // 5. Dictamen Técnico y Resolución Final de Cierre
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [[{ content: '4. DICTAMEN TÉCNICO Y RESOLUCIÓN FINAL DE CIERRE', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold' } }]],
+    body: [
+      [
+        { content: 'Modalidad de Cierre:', styles: { fontStyle: 'bold', cellWidth: 40 } },
+        { content: resolution.closureType || obsCase.managementType || 'Gestión y Mitigación Exitosa', styles: { fontStyle: 'bold', textColor: [16, 120, 60] } },
+        { content: 'Estado del Equipo:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: resolution.resultingStatus === 'baja' ? 'DADO DE BAJA' : 'OPERATIVO Y DISPONIBLE', styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'Índice Resultante:', styles: { fontStyle: 'bold' } },
+        { content: `${resolution.newEvaluationIndex ? `${resolution.newEvaluationIndex} / 5.0 (${resolution.newLevel || 'Bajo'})` : 'Superado / Riesgo Mitigado'}`, styles: { fontStyle: 'bold' } },
+        { content: 'Fecha de Cierre:', styles: { fontStyle: 'bold' } },
+        { content: formattedClosedAt }
+      ],
+      [
+        { content: 'Dictamen y Conclusiones Técnicas:', styles: { fontStyle: 'bold' } },
+        { content: resolution.technicalConclusion || obsCase.justification || 'El equipo ha completado satisfactoriamente el plan de intervención técnica y obsolescencia.', colSpan: 3, styles: { fontSize: 7.2 } }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 5;
+
+  if (currentY + 28 > pageHeight - margin) {
+    doc.addPage();
+    currentY = margin + 10;
+  }
+
+  // 6. Firmas y Responsables
+  const colW = contentWidth / 2;
+  const sigH = 22;
+
+  doc.rect(margin, currentY, colW - 2, sigH);
+  doc.rect(margin + colW + 2, currentY, colW - 2, sigH);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('RESPONSABLE TÉCNICO DE CIERRE', margin + 3, currentY + 5);
+  doc.text('APROBACIÓN Y CALIDAD HOSPITALARIA', margin + colW + 5, currentY + 5);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Nombre: ${resolution.closedBy || obsCase.createdBy || 'Líder de Ingeniería Biomédica'}`, margin + 3, currentY + sigH - 6);
+  doc.text(`Cargo: ${resolution.closedByRole || 'Ingeniero Biomédico / Gestión de Tecnología'}`, margin + 3, currentY + sigH - 2.5);
+
+  doc.text('Nombre: Comité de Calidad y Seguridad del Paciente', margin + colW + 5, currentY + sigH - 6);
+  doc.text('Medicina Intensiva del Tolima S.A. - UCI Honda', margin + colW + 5, currentY + sigH - 2.5);
+
+  // Footer institucional en todas las páginas
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`GTE-FOR-OBS-001 | Acta de Cierre de Obsolescencia Tecnológica | Caso: ${obsCase.caseNumber || 'N/A'} | Página ${i} de ${pageCount}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+  }
+
+  if (returnBase64) {
+    return doc.output('datauristring');
+  } else {
+    const safeCaseNum = (obsCase.caseNumber || 'CASO').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeSerial = (obsCase.serial || 'SN').replace(/[^a-zA-Z0-9_-]/g, '_');
+    doc.save(`Acta_Obsolescencia_${safeCaseNum}_${safeSerial}.pdf`);
+  }
+};
+

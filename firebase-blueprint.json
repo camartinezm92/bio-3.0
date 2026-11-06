@@ -166,6 +166,32 @@
         "createdAt": { "type": "string" }
       },
       "required": ["title", "url"]
+    },
+    "ObsolescenceCase": {
+      "title": "ObsolescenceCase",
+      "description": "Obsolescence management case file, interventions and official closure act",
+      "type": "object",
+      "properties": {
+        "caseNumber": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "equipmentName": { "type": "string" },
+        "status": { "type": "string", "enum": ["abierto", "en_gestion", "cerrado"] },
+        "managementType": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["caseNumber", "equipmentId", "equipmentName", "status", "managementType", "title"]
+    },
+    "ObsolescenceEvaluation": {
+      "title": "ObsolescenceEvaluation",
+      "description": "Obsolescence score and evaluation record",
+      "type": "object",
+      "properties": {
+        "equipmentId": { "type": "string" },
+        "equipmentName": { "type": "string" },
+        "index": { "type": "number" },
+        "level": { "type": "string" }
+      },
+      "required": ["equipmentId", "equipmentName", "index", "level"]
     }
   },
   "firestore": {
@@ -204,6 +230,14 @@
     "/guides/{guideId}": {
       "schema": "Guide",
       "description": "Compliance guides and technical protocols"
+    },
+    "/obsolescence_cases/{caseId}": {
+      "schema": "ObsolescenceCase",
+      "description": "Obsolescence management cases and closure acts"
+    },
+    "/obsolescence_evaluations/{evalId}": {
+      "schema": "ObsolescenceEvaluation",
+      "description": "Obsolescence evaluation records"
     }
   }
 }

@@ -676,6 +676,15 @@ async function startServer() {
           parentId = await getOrCreateFolder(drive, 'Traslados', repId);
         } else if (folderType === 'decommissioning' || folderType === 'baja') {
           parentId = await getOrCreateFolder(drive, 'Actas de Baja', activeEqDirId);
+        } else if (folderType === 'obsolescence' || folderType === 'obsolescencia') {
+          const mainObsId = await getOrCreateFolder(drive, 'Obsolescencia', rootFolderId);
+          if (technologyScope === 'computing') {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia TIC', mainObsId);
+          } else if (technologyScope === 'infrastructure') {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia Infraestructura', mainObsId);
+          } else {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia Biomédica', mainObsId);
+          }
         } else {
           parentId = await getOrCreateFolder(drive, 'Documentos', activeEqDirId);
         }
@@ -694,6 +703,15 @@ async function startServer() {
           }
         } else if (folderType === 'decommissioning' || folderType === 'baja') {
           parentId = await getOrCreateFolder(drive, 'Actas de Baja', rootFolderId);
+        } else if (folderType === 'obsolescence' || folderType === 'obsolescencia') {
+          const mainObsId = await getOrCreateFolder(drive, 'Obsolescencia', rootFolderId);
+          if (technologyScope === 'computing') {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia TIC', mainObsId);
+          } else if (technologyScope === 'infrastructure') {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia Infraestructura', mainObsId);
+          } else {
+            parentId = await getOrCreateFolder(drive, 'Obsolescencia Biomédica', mainObsId);
+          }
         }
       }
 

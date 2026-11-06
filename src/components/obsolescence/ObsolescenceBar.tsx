@@ -1,8 +1,9 @@
-import React from 'react';
+import * as React from 'react';
 import {
   Equipment,
   MaintenanceReport,
   ObsolescenceEvaluation,
+  ObsolescenceCase,
   DIMENSION_CONFIGS,
   DimensionId
 } from '@/types';
@@ -12,13 +13,16 @@ import {
 } from '@/lib/obsolescence-calculator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Gauge, Info, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Gauge, Info, ChevronRight, AlertTriangle, CheckCircle2, Briefcase } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ObsolescenceBarProps {
   equipment: Equipment;
   reports?: MaintenanceReport[];
   existingEvaluation?: ObsolescenceEvaluation | null;
   onOpenEvaluationModal?: () => void;
+  onOpenCaseModal?: () => void;
+  activeCase?: ObsolescenceCase | null;
   compact?: boolean;
 }
 
@@ -27,6 +31,8 @@ export const ObsolescenceBar: React.FC<ObsolescenceBarProps> = ({
   reports = [],
   existingEvaluation,
   onOpenEvaluationModal,
+  onOpenCaseModal,
+  activeCase,
   compact = false
 }) => {
   // Generar evaluación automática si no hay una previa guardada
@@ -82,10 +88,20 @@ export const ObsolescenceBar: React.FC<ObsolescenceBarProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Badge className={`text-xs font-black px-3 py-1 border shadow-xs ${styles.badgeBg}`}>
             Nivel {evaluation.level}
           </Badge>
+          {activeCase && (
+            <Badge className={cn(
+              "text-xs font-bold px-2.5 py-1 border shadow-xs",
+              activeCase.status === 'cerrado' 
+                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                : "bg-amber-50 text-amber-800 border-amber-300"
+            )}>
+              {activeCase.status === 'cerrado' ? '✓ Caso Cerrado' : '⏳ Caso en Gestión'}
+            </Badge>
+          )}
           {onOpenEvaluationModal && (
             <Button
               type="button"
@@ -96,6 +112,18 @@ export const ObsolescenceBar: React.FC<ObsolescenceBarProps> = ({
             >
               Evaluar / Ajustar
               <ChevronRight className="h-3.5 w-3.5 ml-1 text-slate-400" />
+            </Button>
+          )}
+          {onOpenCaseModal && (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={onOpenCaseModal}
+              className="h-8 text-xs font-black rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
+            >
+              <Briefcase className="h-3.5 w-3.5 mr-1 text-emerald-400" />
+              {activeCase?.status === 'cerrado' ? 'Ver Caso & Acta' : 'Gestionar Caso & Cierre'}
             </Button>
           )}
         </div>

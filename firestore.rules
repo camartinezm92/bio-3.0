@@ -83,7 +83,8 @@ service cloud.firestore {
         (request.auth.token.email == "ingbiomedico@ucihonda.com.co" ||
          request.auth.uid == "JqWtu7Nm9MXmHls6oEPwGL5ZMH02" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active'));
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active' ||
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'ACTIVE')));
     }
 
     function isValidUser(data) {
@@ -154,7 +155,8 @@ service cloud.firestore {
 
     match /equipment/{equipmentId} {
       allow read: if isActive();
-      allow create, update: if isActive() && isValidEquipment(request.resource.data);
+      allow create: if isActive() && isValidEquipment(request.resource.data);
+      allow update: if isActive();
       allow delete: if isAdmin();
     }
 
@@ -201,7 +203,11 @@ service cloud.firestore {
     }
 
     match /obsolescence_evaluations/{evalId} {
-      allow read, write: if isActive();
+      allow read, write: if isAuthenticated();
+    }
+
+    match /obsolescence_cases/{caseId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

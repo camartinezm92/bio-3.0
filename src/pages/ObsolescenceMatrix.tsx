@@ -8,7 +8,9 @@ import {
   DimensionId,
   DIMENSION_CONFIGS,
   ObsolescenceLevel,
-  ObsolescenceHorizon
+  ObsolescenceHorizon,
+  ObsolescenceCase,
+  ObsolescenceCaseStatus
 } from '@/types';
 import {
   generateFullObsolescenceEvaluation,
@@ -42,6 +44,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { ObsolescenceEvaluationModal } from '@/components/obsolescence/ObsolescenceEvaluationModal';
+import { ObsolescenceCaseModal } from '@/components/obsolescence/ObsolescenceCaseModal';
 import { ConfirmModal, FeedbackModal } from '@/components/ui/ConfirmModal';
 import {
   Gauge,
@@ -66,11 +69,14 @@ import {
   Trash2,
   Calendar,
   User,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Briefcase,
+  HardDrive
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { generateObsolescenceCasePDF } from '@/lib/pdfGenerator';
 
 export default function ObsolescenceMatrix() {
   const navigate = useNavigate();
@@ -81,6 +87,7 @@ export default function ObsolescenceMatrix() {
   const [reports, setReports] = React.useState<MaintenanceReport[]>([]);
   const [services, setServices] = React.useState<Service[]>([]);
   const [savedEvaluations, setSavedEvaluations] = React.useState<Record<string, ObsolescenceEvaluation>>({});
+  const [cases, setCases] = React.useState<ObsolescenceCase[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   // Filtros de búsqueda
@@ -94,6 +101,11 @@ export default function ObsolescenceMatrix() {
   const [selectedEquipmentForEval, setSelectedEquipmentForEval] = React.useState<Equipment | null>(null);
   const [isEvaluationModalOpen, setIsEvaluationModalOpen] = React.useState(false);
 
+  // Modal y gestión de Casos de Obsolescencia (GTE-FOR-OBS-001)
+  const [selectedCaseEquipment, setSelectedCaseEquipment] = React.useState<Equipment | null>(null);
+  const [selectedCase, setSelectedCase] = React.useState<ObsolescenceCase | null>(null);
+  const [isCaseModalOpen, setIsCaseModalOpen] = React.useState(false);
+
   // Estado para nuevo seguimiento (Pág. 3)
   const [newFollowUpEquipmentId, setNewFollowUpEquipmentId] = React.useState('');
   const [followUpSearchQuery, setFollowUpSearchQuery] = React.useState('');
@@ -106,6 +118,13 @@ export default function ObsolescenceMatrix() {
   const [newFollowUpAction, setNewFollowUpAction] = React.useState('');
   const [submittingFollowUp, setSubmittingFollowUp] = React.useState(false);
   const [followUpTableSearch, setFollowUpTableSearch] = React.useState('');
+
+  // Filtros y búsqueda para pestaña de Casos (Pág. 4)
+  const [caseTableSearch, setCaseTableSearch] = React.useState('');
+  const [caseFilterStatus, setCaseFilterStatus] = React.useState<string>('all');
+  const [isNewCaseSearchOpen, setIsNewCaseSearchOpen] = React.useState(false);
+  const [newCaseSearchQuery, setNewCaseSearchQuery] = React.useState('');
+  const newCaseDropdownRef = React.useRef<HTMLDivElement>(null);
 
   // Modales in-app de confirmación y retroalimentación (evitando window.alert y window.confirm)
   const [deleteConfirmTarget, setDeleteConfirmTarget] = React.useState<{
@@ -130,11 +149,14 @@ export default function ObsolescenceMatrix() {
     setFeedbackModal({ isOpen: true, title, description, type });
   };
 
-  // Cerrar desplegable de búsqueda al hacer clic por fuera
+  // Cerrar desplegables de búsqueda al hacer clic por fuera
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (followUpDropdownRef.current && !followUpDropdownRef.current.contains(event.target as Node)) {
         setIsFollowUpSearchOpen(false);
+      }
+      if (newCaseDropdownRef.current && !newCaseDropdownRef.current.contains(event.target as Node)) {
+        setIsNewCaseSearchOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -146,16 +168,22 @@ export default function ObsolescenceMatrix() {
     const unsubEq = onSnapshot(collection(db, 'equipment'), (snap) => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
       setEquipments(list);
+    }, (error) => {
+      console.warn("ObsolescenceMatrix equipment snapshot warning:", error);
     });
 
     const unsubRep = onSnapshot(collection(db, 'reports'), (snap) => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as MaintenanceReport));
       setReports(list);
+    }, (error) => {
+      console.warn("ObsolescenceMatrix reports snapshot warning:", error);
     });
 
     const unsubSvc = onSnapshot(collection(db, 'services'), (snap) => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as Service));
       setServices(list);
+    }, (error) => {
+      console.warn("ObsolescenceMatrix services snapshot warning:", error);
     });
 
     const unsubObs = onSnapshot(collection(db, 'obsolescence_evaluations'), (snap) => {
@@ -166,6 +194,16 @@ export default function ObsolescenceMatrix() {
       });
       setSavedEvaluations(map);
       setLoading(false);
+    }, (error) => {
+      console.warn("ObsolescenceMatrix evaluations snapshot warning:", error);
+      setLoading(false);
+    });
+
+    const unsubCases = onSnapshot(collection(db, 'obsolescence_cases'), (snap) => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as ObsolescenceCase));
+      setCases(list);
+    }, (error) => {
+      console.warn("ObsolescenceMatrix cases snapshot warning:", error);
     });
 
     return () => {
@@ -173,6 +211,7 @@ export default function ObsolescenceMatrix() {
       unsubRep();
       unsubSvc();
       unsubObs();
+      unsubCases();
     };
   }, []);
 
@@ -180,6 +219,70 @@ export default function ObsolescenceMatrix() {
   const scopedEquipments = React.useMemo(() => {
     return filterByScope(equipments);
   }, [equipments, filterByScope]);
+
+  // Casos filtrados por ámbito tecnológico
+  const scopedCases = React.useMemo(() => {
+    if (scope === 'all') return cases;
+    return cases.filter(c => (c.technologyScope || 'biomedical') === scope);
+  }, [cases, scope]);
+
+  // Mapa de casos agrupados por ID de equipo para acceso inmediato
+  const casesByEquipmentId = React.useMemo(() => {
+    const map: Record<string, ObsolescenceCase[]> = {};
+    cases.forEach(c => {
+      if (!map[c.equipmentId]) map[c.equipmentId] = [];
+      map[c.equipmentId].push(c);
+    });
+    // ordenar más recientes primero dentro de cada equipo
+    Object.keys(map).forEach(eqId => {
+      map[eqId].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    });
+    return map;
+  }, [cases]);
+
+  // Estadísticas institucionales de casos de obsolescencia
+  const caseStats = React.useMemo(() => {
+    const total = scopedCases.length;
+    const closed = scopedCases.filter(c => c.status === 'cerrado').length;
+    const inProgress = scopedCases.filter(c => c.status !== 'cerrado').length;
+    const totalCost = scopedCases.reduce((acc, c) => acc + (c.totalCost || 0), 0);
+    return { total, closed, inProgress, totalCost };
+  }, [scopedCases]);
+
+  // Casos filtrados para la tabla de la Página 4
+  const filteredCases = React.useMemo(() => {
+    return scopedCases.filter(c => {
+      const q = caseTableSearch.trim().toLowerCase();
+      const matchesText = 
+        !q ||
+        (c.caseNumber || '').toLowerCase().includes(q) ||
+        (c.equipmentName || '').toLowerCase().includes(q) ||
+        (c.serial || '').toLowerCase().includes(q) ||
+        (c.equipmentCode || '').toLowerCase().includes(q) ||
+        (c.serviceName || '').toLowerCase().includes(q) ||
+        (c.title || '').toLowerCase().includes(q) ||
+        (c.managementType || '').toLowerCase().includes(q) ||
+        (c.resolution?.technicalConclusion || '').toLowerCase().includes(q) ||
+        (c.resolution?.closedBy || '').toLowerCase().includes(q);
+
+      const matchesStatus = caseFilterStatus === 'all' || c.status === caseFilterStatus;
+      return matchesText && matchesStatus;
+    }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  }, [scopedCases, caseTableSearch, caseFilterStatus]);
+
+  // Función para abrir el modal de caso para un equipo específico
+  const handleOpenCaseModal = (equipmentId: string, specificCase?: ObsolescenceCase) => {
+    const targetEq = equipments.find(e => e.id === equipmentId);
+    if (!targetEq) return;
+    setSelectedCaseEquipment(targetEq);
+    if (specificCase) {
+      setSelectedCase(specificCase);
+    } else {
+      const existing = casesByEquipmentId[equipmentId]?.[0] || null;
+      setSelectedCase(existing);
+    }
+    setIsCaseModalOpen(true);
+  };
 
   // Consolidar todas las evaluaciones (guardadas o auto-calculadas dinámicamente)
   const allEvaluations: ObsolescenceEvaluation[] = React.useMemo(() => {
@@ -324,6 +427,29 @@ export default function ObsolescenceMatrix() {
       return name.includes(q) || serial.includes(q) || code.includes(q) || service.includes(q) || brand.includes(q) || model.includes(q);
     });
   }, [allEvaluations, followUpSearchQuery, followUpFilterPriorityOnly]);
+
+  // Lista de tecnologías ordenadas alfabéticamente (A-Z) para apertura rápida de casos
+  const sortedAndFilteredNewCaseEvaluations = React.useMemo(() => {
+    let list = [...allEvaluations];
+    list.sort((a, b) => {
+      const cmp = (a.equipmentName || '').localeCompare(b.equipmentName || '', 'es', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      return (a.serial || '').localeCompare(b.serial || '', 'es');
+    });
+
+    const q = newCaseSearchQuery.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter(ev => {
+      const name = (ev.equipmentName || '').toLowerCase();
+      const serial = (ev.serial || '').toLowerCase();
+      const code = (ev.equipmentCode || '').toLowerCase();
+      const service = (ev.serviceName || '').toLowerCase();
+      const brand = (ev.brand || '').toLowerCase();
+      const model = (ev.model || '').toLowerCase();
+      return name.includes(q) || serial.includes(q) || code.includes(q) || service.includes(q) || brand.includes(q) || model.includes(q);
+    });
+  }, [allEvaluations, newCaseSearchQuery]);
 
   // Abrir modal de evaluación para un equipo específico
   const handleOpenEvalModal = (equipmentId: string) => {
@@ -777,17 +903,21 @@ export default function ObsolescenceMatrix() {
       {/* PESTAÑAS OFICIALES DE LA MATRIZ */}
       <Tabs defaultValue="matrix" className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <TabsList className="bg-slate-100 p-1 rounded-2xl h-12">
-            <TabsTrigger value="matrix" className="rounded-xl font-bold text-xs px-4">
-              Página 1: Matriz de Evaluación ({filteredEvaluations.length})
+          <TabsList className="bg-slate-100 p-1 rounded-2xl h-12 flex-wrap sm:flex-nowrap">
+            <TabsTrigger value="matrix" className="rounded-xl font-bold text-xs px-3.5">
+              Página 1: Matriz ({filteredEvaluations.length})
             </TabsTrigger>
-            <TabsTrigger value="renewal" className="rounded-xl font-bold text-xs px-4">
+            <TabsTrigger value="renewal" className="rounded-xl font-bold text-xs px-3.5">
               Página 2: Plan de Renovación ({renewalEvaluations.length})
             </TabsTrigger>
-            <TabsTrigger value="followup" className="rounded-xl font-bold text-xs px-4">
+            <TabsTrigger value="followup" className="rounded-xl font-bold text-xs px-3.5">
               Página 3: Seguimiento a Planes ({followUpItems.length})
             </TabsTrigger>
-            <TabsTrigger value="methodology" className="rounded-xl font-bold text-xs px-4">
+            <TabsTrigger value="cases" className="rounded-xl font-bold text-xs px-3.5 flex items-center gap-1.5">
+              <Briefcase className="h-3.5 w-3.5 text-primary" />
+              Página 4: Casos & Cierres ({scopedCases.length})
+            </TabsTrigger>
+            <TabsTrigger value="methodology" className="rounded-xl font-bold text-xs px-3.5">
               Criterios & Metodología (GTE-FCH)
             </TabsTrigger>
           </TabsList>
@@ -905,8 +1035,20 @@ export default function ObsolescenceMatrix() {
                             {ev.equipmentCode}
                           </TableCell>
                           <TableCell>
-                            <div className="font-bold text-slate-900 leading-tight">
-                              {ev.equipmentName}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900 leading-tight">
+                                {ev.equipmentName}
+                              </span>
+                              {casesByEquipmentId[ev.equipmentId]?.[0] && (
+                                <span className={cn(
+                                  "text-[9px] font-black px-1.5 py-0.5 rounded border inline-flex items-center gap-0.5 shrink-0",
+                                  casesByEquipmentId[ev.equipmentId][0].status === 'cerrado'
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                    : "bg-amber-50 text-amber-800 border-amber-300"
+                                )}>
+                                  {casesByEquipmentId[ev.equipmentId][0].status === 'cerrado' ? '✓ Caso Cerrado' : '⚙ En Gestión'}
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-slate-400 font-medium">
                               {ev.brand} {ev.model} • S/N: {ev.serial}
@@ -950,6 +1092,27 @@ export default function ObsolescenceMatrix() {
                           {/* Botones de acción */}
                           <TableCell className="text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant={casesByEquipmentId[ev.equipmentId]?.length ? "default" : "outline"}
+                                onClick={() => handleOpenCaseModal(ev.equipmentId)}
+                                className={cn(
+                                  "h-7 text-[11px] font-bold rounded-lg shadow-xs",
+                                  casesByEquipmentId[ev.equipmentId]?.[0]?.status === 'cerrado'
+                                    ? "bg-emerald-700 hover:bg-emerald-800 text-white"
+                                    : casesByEquipmentId[ev.equipmentId]?.length
+                                    ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                    : "border-slate-300 hover:bg-slate-100 text-slate-700"
+                                )}
+                                title="Gestionar Caso de Obsolescencia, Cotizaciones, Mantenimientos y Cierre Oficial (GTE-FOR-OBS-001)"
+                              >
+                                <Briefcase className="h-3 w-3 mr-1" />
+                                {casesByEquipmentId[ev.equipmentId]?.[0]?.status === 'cerrado'
+                                  ? 'Acta Cierre'
+                                  : casesByEquipmentId[ev.equipmentId]?.length
+                                  ? 'Caso'
+                                  : 'Caso'}
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1062,14 +1225,30 @@ export default function ObsolescenceMatrix() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenEvalModal(ev.equipmentId)}
-                              className="h-7 text-[11px] font-bold rounded-lg border-slate-300"
-                            >
-                              Editar Plan
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenEvalModal(ev.equipmentId)}
+                                className="h-7 text-[11px] font-bold rounded-lg border-slate-300 hover:bg-slate-50"
+                              >
+                                Editar Plan
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => handleOpenCaseModal(ev.equipmentId)}
+                                className={cn(
+                                  "h-7 text-[11px] font-black rounded-lg shadow-xs",
+                                  casesByEquipmentId[ev.equipmentId]?.[0]?.status === 'cerrado'
+                                    ? "bg-emerald-700 hover:bg-emerald-800 text-white"
+                                    : "bg-slate-900 hover:bg-slate-800 text-white"
+                                )}
+                              >
+                                <Briefcase className="h-3.5 w-3.5 mr-1 text-emerald-400" />
+                                {casesByEquipmentId[ev.equipmentId]?.[0]?.status === 'cerrado' ? 'Ver Caso / Acta' : 'Gestionar Caso'}
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -1459,7 +1638,395 @@ export default function ObsolescenceMatrix() {
           </div>
         </TabsContent>
 
-        {/* PESTAÑA 4: CRITERIOS & METODOLOGÍA (GTE-FCH-TCH) */}
+        {/* PESTAÑA 4: CASOS Y ACTAS OFICIALES DE CIERRE (GTE-FOR-OBS-001) */}
+        <TabsContent value="cases" className="space-y-6 focus-visible:outline-none">
+          {/* Banner Institucional con Selector para Abrir Nuevo Caso */}
+          <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/40">
+                    GTE-FOR-OBS-001
+                  </span>
+                  <span className="text-xs text-slate-400">UCI Honda • Medicina Intensiva del Tolima</span>
+                </div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Briefcase className="h-5 w-5 text-emerald-400" />
+                  Casos de Gestión, Intervenciones y Actas Oficiales de Cierre
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+                  Documente el ciclo completo de resolución de obsolescencia: radicación del caso, registro de cotizaciones, mantenimientos correctivos mayores, adquisiciones de reemplazo y emisión del <strong>Acta Oficial de Cierre en PDF</strong> archivada automáticamente en la carpeta <strong>Obsolescencia</strong> de Google Drive, recalificando la tecnología para que no permanezca en estado crítico.
+                </p>
+              </div>
+
+              {/* Botón y Desplegable para Abrir Nuevo Caso */}
+              <div className="relative shrink-0" ref={newCaseDropdownRef}>
+                <Button
+                  type="button"
+                  onClick={() => setIsNewCaseSearchOpen(prev => !prev)}
+                  className="rounded-xl h-11 px-5 font-black text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-md flex items-center gap-2 transition-all active:scale-95"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Abrir Nuevo Caso de Obsolescencia
+                </Button>
+
+                {isNewCaseSearchOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 z-50 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 text-slate-900">
+                    <div className="p-3 bg-slate-50 border-b border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700">Seleccionar Tecnología Biomédica</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">{sortedAndFilteredNewCaseEvaluations.length} disponibles</span>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                        <Input
+                          value={newCaseSearchQuery}
+                          onChange={(e) => setNewCaseSearchQuery(e.target.value)}
+                          placeholder="Buscar por equipo, serial o servicio..."
+                          className="h-8 pl-8 text-xs rounded-lg bg-white border-slate-200"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {sortedAndFilteredNewCaseEvaluations.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-400">
+                          No se encontraron tecnologías que coincidan.
+                        </div>
+                      ) : (
+                        sortedAndFilteredNewCaseEvaluations.map((ev) => {
+                          const lvlStyle = getObsolescenceLevelStyles(ev.level);
+                          const hasCase = casesByEquipmentId[ev.equipmentId]?.[0];
+                          return (
+                            <button
+                              key={ev.equipmentId}
+                              type="button"
+                              onClick={() => {
+                                setIsNewCaseSearchOpen(false);
+                                setNewCaseSearchQuery('');
+                                handleOpenCaseModal(ev.equipmentId);
+                              }}
+                              className="w-full text-left p-2.5 hover:bg-slate-50 transition-colors flex items-center justify-between gap-2 group cursor-pointer"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-900 group-hover:text-primary transition-colors truncate">
+                                    {ev.equipmentName}
+                                  </span>
+                                  <span className={cn(
+                                    "text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0",
+                                    lvlStyle.badgeBg
+                                  )}>
+                                    {ev.level}
+                                  </span>
+                                  {hasCase && (
+                                    <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                      {hasCase.status === 'cerrado' ? '✓ Caso Cerrado' : '⚙ En Gestión'}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                  S/N: {ev.serial || 'S/N'} • {ev.serviceName}
+                                </p>
+                              </div>
+                              <span className="text-[10px] font-bold text-slate-400 shrink-0">
+                                IO: {ev.index.toFixed(2)}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Tarjetas KPI de Casos */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="rounded-2xl border border-slate-200/80 shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Total Casos
+                  </span>
+                  <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
+                    <Briefcase className="h-4 w-4" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <span className="text-2xl font-black text-slate-900">{caseStats.total}</span>
+                <p className="text-xs text-slate-500 mt-1 font-medium">Expedientes radicados</p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border border-slate-200/80 shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Casos Cerrados con Acta
+                  </span>
+                  <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-emerald-700">{caseStats.closed}</span>
+                  <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-black">
+                    100% Auditados
+                  </Badge>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 font-medium">Obsolescencia resuelta y superada</p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border border-slate-200/80 shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Casos en Mitigación
+                  </span>
+                  <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-amber-700">{caseStats.inProgress}</span>
+                  <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-[10px] font-black">
+                    En Gestión
+                  </Badge>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 font-medium">Cotizaciones / acuerdos en curso</p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border border-slate-200/80 shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Inversión Ejecutada
+                  </span>
+                  <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                    <DollarSign className="h-4 w-4" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <span className="text-xl font-black text-slate-900">
+                  ${(caseStats.totalCost / 1000000).toFixed(1)}M <span className="text-xs text-slate-400 font-bold">COP</span>
+                </span>
+                <p className="text-xs text-slate-500 mt-1 font-medium">Costos consolidados de intervención</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Barra de Búsqueda y Filtro de Casos */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Buscar por radicado, tecnología, serial, placa, servicio, modalidad o conclusiones..."
+                value={caseTableSearch}
+                onChange={(e) => setCaseTableSearch(e.target.value)}
+                className="pl-10 h-10 rounded-xl text-xs bg-slate-50/60 border-slate-200"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Select value={caseFilterStatus} onValueChange={setCaseFilterStatus}>
+                <SelectTrigger className="h-10 rounded-xl text-xs w-[170px] bg-slate-50/60 border-slate-200 font-medium">
+                  <SelectValue placeholder="Estado del Caso" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los Estados</SelectItem>
+                  <SelectItem value="cerrado">✓ Cerrados y Resueltos</SelectItem>
+                  <SelectItem value="en_gestion">⚙ En Gestión</SelectItem>
+                  <SelectItem value="abierto">○ Abiertos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Tabla de Casos y Expedientes de Obsolescencia */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-900 text-white">
+                  <TableRow className="hover:bg-slate-900 border-b border-slate-800 text-[11px] font-black uppercase tracking-wider">
+                    <TableHead className="text-white">Radicado</TableHead>
+                    <TableHead className="text-white min-w-[200px]">Tecnología Biomédica</TableHead>
+                    <TableHead className="text-white">Servicio</TableHead>
+                    <TableHead className="text-white">Modalidad & Caso</TableHead>
+                    <TableHead className="text-white text-center">Nivel Inicial</TableHead>
+                    <TableHead className="text-white text-center">Evidencias</TableHead>
+                    <TableHead className="text-white text-right">Inversión Ejecutada</TableHead>
+                    <TableHead className="text-white text-center">Estado</TableHead>
+                    <TableHead className="text-white">Dictamen de Cierre</TableHead>
+                    <TableHead className="text-white text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCases.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-12 text-slate-400 text-sm">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Briefcase className="h-8 w-8 text-slate-300" />
+                          <p className="font-semibold text-slate-600">
+                            {caseTableSearch ? 'No se encontraron casos con ese criterio de búsqueda.' : 'No hay casos de obsolescencia registrados todavía.'}
+                          </p>
+                          <p className="text-xs text-slate-400 max-w-md">
+                            Utilice el botón superior &quot;Abrir Nuevo Caso de Obsolescencia&quot; o el botón &quot;Caso&quot; en la Matriz para radicar la primera intervención técnica o acta de cierre.
+                          </p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredCases.map(c => {
+                      const isClosed = c.status === 'cerrado';
+                      const initialLevelStyle = getObsolescenceLevelStyles(c.initialEvaluation?.level || 'Alto');
+                      const driveLink = c.resolution?.pdfUrl || c.pdfUrl;
+
+                      return (
+                        <TableRow key={c.id} className="hover:bg-slate-50/80 transition-colors text-xs border-b border-slate-100">
+                          {/* Radicado */}
+                          <TableCell className="font-mono font-bold text-slate-800 whitespace-nowrap">
+                            <span className="bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
+                              {c.caseNumber}
+                            </span>
+                          </TableCell>
+
+                          {/* Tecnología */}
+                          <TableCell>
+                            <div className="font-bold text-slate-900 leading-tight">
+                              {c.equipmentName}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                              S/N: <span className="font-mono text-slate-600 font-bold">{c.serial || 'S/N'}</span>
+                              {c.equipmentCode && <> • Placa: <span className="font-mono">{c.equipmentCode}</span></>}
+                            </div>
+                          </TableCell>
+
+                          {/* Servicio */}
+                          <TableCell className="font-medium text-slate-600 whitespace-nowrap">
+                            {c.serviceName}
+                          </TableCell>
+
+                          {/* Modalidad y Título */}
+                          <TableCell className="max-w-xs">
+                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-md block w-fit mb-0.5">
+                              {c.managementType}
+                            </span>
+                            <span className="font-semibold text-slate-800 text-[11px] block truncate">
+                              {c.title}
+                            </span>
+                          </TableCell>
+
+                          {/* Nivel Inicial */}
+                          <TableCell className="text-center whitespace-nowrap">
+                            <Badge className={`text-[10px] font-black border ${initialLevelStyle.badgeBg}`}>
+                              {c.initialEvaluation?.level || 'N/A'} ({c.initialEvaluation?.index || 'N/A'})
+                            </Badge>
+                          </TableCell>
+
+                          {/* Evidencias / Intervenciones */}
+                          <TableCell className="text-center whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-bold border border-slate-200">
+                              {c.interventions?.length || 0} reg.
+                            </span>
+                          </TableCell>
+
+                          {/* Inversión Ejecutada */}
+                          <TableCell className="text-right font-black text-slate-900 whitespace-nowrap">
+                            ${(c.totalCost || 0).toLocaleString('es-CO')}
+                          </TableCell>
+
+                          {/* Estado */}
+                          <TableCell className="text-center whitespace-nowrap">
+                            <Badge className={cn(
+                              "text-[10px] font-black px-2 py-0.5 border shadow-2xs",
+                              isClosed
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                : "bg-amber-50 text-amber-800 border-amber-300"
+                            )}>
+                              {isClosed ? '✓ CERRADO' : '⚙ EN GESTIÓN'}
+                            </Badge>
+                          </TableCell>
+
+                          {/* Dictamen y Cierre */}
+                          <TableCell className="max-w-xs">
+                            {isClosed ? (
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-800">
+                                  <span>{c.resolution?.closureType}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 truncate" title={c.resolution?.technicalConclusion}>
+                                  {c.resolution?.technicalConclusion || 'Caso cerrado formalmente'}
+                                </p>
+                                <span className="text-[9px] text-slate-400 block">
+                                  Cerrado: {c.resolution?.closedAt ? c.resolution.closedAt.split('T')[0] : 'N/A'} • {c.resolution?.closedBy}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">
+                                En proceso de intervención y cotizaciones
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* Acciones */}
+                          <TableCell className="text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenCaseModal(c.equipmentId, c)}
+                                className="h-7 text-[11px] font-bold rounded-lg border-slate-300 hover:bg-slate-100"
+                                title="Ver detalle del caso, agregar cotizaciones o cerrar expediente"
+                              >
+                                {isClosed ? 'Ver Expediente' : 'Gestionar'}
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => generateObsolescenceCasePDF(c, false)}
+                                className="h-7 w-7 p-0 rounded-lg text-slate-600 hover:text-slate-900 border-slate-300"
+                                title="Descargar Acta de Cierre en PDF (GTE-FOR-OBS-001)"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </Button>
+
+                              {driveLink && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => window.open(driveLink, '_blank')}
+                                  className="h-7 w-7 p-0 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                  title="Ver Acta archivada en Google Drive (Carpeta Obsolescencia)"
+                                >
+                                  <HardDrive className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* PESTAÑA 5: CRITERIOS & METODOLOGÍA (GTE-FCH-TCH) */}
         <TabsContent value="methodology" className="space-y-6 focus-visible:outline-none">
           <div className="bg-slate-50 border border-slate-200 p-6 rounded-3xl space-y-4">
             <div className="flex items-center gap-3">
@@ -1566,6 +2133,30 @@ export default function ObsolescenceMatrix() {
           }}
         />
       )}
+
+      {/* Modal de Caso de Obsolescencia, Evidencias, Costos y Acta Oficial de Cierre (GTE-FOR-OBS-001) */}
+      <ObsolescenceCaseModal
+        open={isCaseModalOpen}
+        onOpenChange={(open) => {
+          setIsCaseModalOpen(open);
+          if (!open) {
+            setSelectedCaseEquipment(null);
+            setSelectedCase(null);
+          }
+        }}
+        equipment={selectedCaseEquipment}
+        existingEvaluation={selectedCaseEquipment ? savedEvaluations[selectedCaseEquipment.id] || allEvaluations.find(e => e.equipmentId === selectedCaseEquipment.id) : null}
+        existingCase={selectedCase}
+        onCaseSaved={(savedCase) => {
+          showFeedback(
+            savedCase.status === 'cerrado' ? 'Caso Cerrado y Resuelto' : 'Caso Guardado Exitosamente',
+            savedCase.status === 'cerrado'
+              ? `El caso ${savedCase.caseNumber} fue cerrado formalmente. El Acta Oficial PDF fue generada y guardada en Google Drive (carpeta Obsolescencia), y el equipo fue recalificado.`
+              : `El caso ${savedCase.caseNumber} ha sido actualizado con sus intervenciones y acuerdos.`,
+            'success'
+          );
+        }}
+      />
 
       {/* Modal In-App de Confirmación para Eliminar (evita confirm de navegador) */}
       <ConfirmModal

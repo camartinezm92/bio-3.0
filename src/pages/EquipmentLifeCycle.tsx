@@ -18,10 +18,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
-import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2, AlertTriangle, UploadCloud } from 'lucide-react';
 import { deleteDoc, doc, onSnapshot, collection, query, where, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation } from '@/types';
+import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation, ObsolescenceCase } from '@/types';
 import { syncEquipmentWithHistory } from '@/lib/sync-logic';
 
 import MaintenanceForm from '@/components/forms/MaintenanceForm';
@@ -29,6 +29,8 @@ import { CalibrationForm } from '@/components/forms/CalibrationForm';
 import TransferForm from '@/components/forms/TransferForm';
 import { ObsolescenceBar } from '@/components/obsolescence/ObsolescenceBar';
 import { ObsolescenceEvaluationModal } from '@/components/obsolescence/ObsolescenceEvaluationModal';
+import { ObsolescenceCaseModal } from '@/components/obsolescence/ObsolescenceCaseModal';
+import { BatchMaintenanceModal } from '@/components/forms/BatchMaintenanceModal';
 import { FeedbackModal } from '@/components/ui/ConfirmModal';
 
 import { generateMaintenancePDF, generateEquipmentCVPDF } from '@/lib/pdfGenerator';
@@ -53,6 +55,9 @@ export default function EquipmentLifeCycle() {
   const [isExporting, setIsExporting] = React.useState(false);
   const [obsolescenceEvaluation, setObsolescenceEvaluation] = React.useState<ObsolescenceEvaluation | null>(null);
   const [showObsolescenceModal, setShowObsolescenceModal] = React.useState(false);
+  const [obsolescenceCases, setObsolescenceCases] = React.useState<ObsolescenceCase[]>([]);
+  const [showCaseModal, setShowCaseModal] = React.useState(false);
+  const [showBatchModal, setShowBatchModal] = React.useState(false);
   const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   const handleDownloadReport = (report: MaintenanceReport) => {
@@ -191,11 +196,25 @@ export default function EquipmentLifeCycle() {
       console.warn("EquipmentLifeCycle obsolescence snapshot error:", error);
     });
 
+    const qCases = query(collection(db, 'obsolescence_cases'), where('equipmentId', '==', id));
+    const unsubscribeCases = onSnapshot(qCases, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as ObsolescenceCase[];
+      // sort latest first
+      data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setObsolescenceCases(data);
+    }, (error) => {
+      console.warn("EquipmentLifeCycle cases snapshot error:", error);
+    });
+
     return () => {
       unsubscribeEq();
       unsubscribeReports();
       unsubscribeTransfers();
       unsubscribeObs();
+      unsubscribeCases();
     };
   }, [id]);
 
@@ -470,6 +489,16 @@ export default function EquipmentLifeCycle() {
               Registrar Calibración
             </Button>
           )}
+
+          <Button 
+            onClick={() => setShowBatchModal(true)}
+            variant="outline"
+            className="rounded-xl shadow-xs h-11 px-5 border-slate-300 hover:bg-slate-100 font-bold transition-all hover:scale-[1.02] text-slate-800"
+            title="Cargar múltiples reportes de mantenimiento y guardarlos en Google Drive"
+          >
+            <UploadCloud className="mr-2 h-4 w-4 text-primary" />
+            Cargue Masivo
+          </Button>
         </div>
       </div>
 
@@ -479,6 +508,8 @@ export default function EquipmentLifeCycle() {
         reports={reports}
         existingEvaluation={obsolescenceEvaluation}
         onOpenEvaluationModal={() => setShowObsolescenceModal(true)}
+        onOpenCaseModal={() => setShowCaseModal(true)}
+        activeCase={obsolescenceCases[0] || null}
       />
 
       <div className="grid gap-8 md:grid-cols-3">
@@ -866,18 +897,61 @@ export default function EquipmentLifeCycle() {
 
             <TabsContent value="history" className="space-y-6 pt-6">
               <Card className="border-none shadow-xl shadow-slate-200/50 rounded-3xl overflow-hidden">
-                <CardHeader className="bg-slate-50/50 border-b px-8 py-5">
+                <CardHeader className="bg-slate-50/50 border-b px-8 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <History className="h-5 w-5 text-primary" />
                     Registro Histórico de Intervenciones
                   </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowBatchModal(true)}
+                      className="rounded-xl font-bold text-xs h-9 border-slate-300 hover:bg-slate-100 shadow-xs text-slate-800"
+                    >
+                      <UploadCloud className="mr-1.5 h-4 w-4 text-primary" />
+                      Cargue Masivo a Drive
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setShowMaintenanceForm(true)}
+                      className="rounded-xl font-bold text-xs h-9 shadow-xs"
+                    >
+                      <Wrench className="mr-1.5 h-4 w-4" />
+                      Nuevo Reporte
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="p-8">
                   <div className="space-y-8 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
                     {reports.length === 0 ? (
-                      <div className="text-center py-12">
-                        <History className="h-12 w-12 text-slate-200 mx-auto mb-4" />
-                        <p className="text-slate-500 font-medium">No hay intervenciones registradas aún.</p>
+                      <div className="text-center py-12 space-y-4">
+                        <History className="h-12 w-12 text-slate-200 mx-auto" />
+                        <div>
+                          <p className="text-slate-700 font-bold">No hay intervenciones registradas aún.</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Puede registrar un nuevo reporte o cargar masivamente soportes históricos desde archivos PDF/imágenes.
+                          </p>
+                        </div>
+                        <div className="flex justify-center gap-3 pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowBatchModal(true)}
+                            className="rounded-xl font-bold text-xs h-10 border-slate-300"
+                          >
+                            <UploadCloud className="mr-2 h-4 w-4 text-primary" />
+                            Cargar Reportes Masivamente
+                          </Button>
+                          <Button
+                            onClick={() => setShowMaintenanceForm(true)}
+                            className="rounded-xl font-bold text-xs h-10"
+                          >
+                            <Wrench className="mr-2 h-4 w-4" />
+                            Crear Nuevo Reporte
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       reports.map((report) => (
@@ -1284,6 +1358,43 @@ export default function EquipmentLifeCycle() {
         existingEvaluation={obsolescenceEvaluation}
         onSaved={(saved) => setObsolescenceEvaluation(saved)}
       />
+
+      {/* Modal de Caso de Obsolescencia, Evidencias, Costos y Acta de Cierre Oficial */}
+      {equipment && (
+        <ObsolescenceCaseModal
+          open={showCaseModal}
+          onOpenChange={setShowCaseModal}
+          equipment={equipment}
+          existingEvaluation={obsolescenceEvaluation}
+          existingCase={obsolescenceCases[0] || null}
+          onCaseSaved={(savedCase) => {
+            setFeedback({
+              title: savedCase.status === 'cerrado' ? 'Caso de Obsolescencia Cerrado' : 'Caso de Obsolescencia Guardado',
+              message: savedCase.status === 'cerrado' 
+                ? `El caso ${savedCase.caseNumber} ha sido cerrado satisfactoriamente. Se generó el acta oficial PDF y fue archivada en Drive.`
+                : `Los cambios y avances del caso ${savedCase.caseNumber} fueron guardados con éxito.`,
+              type: 'success'
+            });
+          }}
+        />
+      )}
+
+      {/* Modal de Cargue Masivo de Mantenimientos y Archivo en Drive */}
+      {equipment && (
+        <BatchMaintenanceModal
+          open={showBatchModal}
+          onOpenChange={setShowBatchModal}
+          equipment={equipment}
+          onSuccess={(count) => {
+            setShowBatchModal(false);
+            setFeedback({
+              title: 'Cargue Masivo Exitoso',
+              message: `Se cargaron e indexaron exitosamente ${count} reporte(s) de mantenimiento en el historial y en la carpeta Mantenimientos de Google Drive.`,
+              type: 'success'
+            });
+          }}
+        />
+      )}
 
       {/* In-app feedback modal */}
       {feedback && (
