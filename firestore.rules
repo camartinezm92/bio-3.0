@@ -114,6 +114,32 @@ service cloud.firestore {
              data.destinationServiceId is string;
     }
 
+    function isValidInvoice(data) {
+      return data.keys().hasAll(['name', 'date', 'providerId', 'providerName', 'status', 'items']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.date is string && data.date.size() > 0 &&
+             data.providerId is string && data.providerId.size() > 0 &&
+             data.providerName is string && data.providerName.size() > 0 &&
+             data.status in ['pendiente', 'parcial', 'completa'] &&
+             data.items is list;
+    }
+
+    function isValidCatalogItem(data) {
+      return data.keys().hasAll(['name', 'normalizedName', 'lastUnitPrice', 'priceHistory']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 250 &&
+             data.normalizedName is string && data.normalizedName.size() > 0 &&
+             data.lastUnitPrice is number && data.lastUnitPrice >= 0 &&
+             data.priceHistory is list;
+    }
+
+    function isValidBudget(data) {
+      return data.keys().hasAll(['name', 'date', 'totalAmount', 'items']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.date is string && data.date.size() > 0 &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.items is list;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -208,6 +234,24 @@ service cloud.firestore {
 
     match /obsolescence_cases/{caseId} {
       allow read, write: if isAuthenticated();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && isValidInvoice(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /catalog_items/{itemId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && isValidCatalogItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /budgets/{budgetId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && isValidBudget(request.resource.data);
+      allow delete: if isAdmin();
     }
   }
 }

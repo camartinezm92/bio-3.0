@@ -68,6 +68,9 @@ const SECTIONS = [
   { id: 'compliance', name: 'Cumplimiento / Normativa' },
   { id: 'alerts', name: 'Sistema de Alertas' },
   { id: 'providers', name: 'Directorio de Proveedores' },
+  { id: 'invoices', name: 'Control de Facturas' },
+  { id: 'expenses', name: 'Control de Gastos' },
+  { id: 'catalog', name: 'Catálogo y Presupuestos' },
   { id: 'schedule', name: 'Cronograma Mantenimiento' }
 ];
 

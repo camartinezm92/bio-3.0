@@ -192,6 +192,63 @@
         "level": { "type": "string" }
       },
       "required": ["equipmentId", "equipmentName", "index", "level"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Provider invoice with cost breakdown, item delivery tracking and Google Drive archive",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string" },
+        "providerId": { "type": "string" },
+        "providerName": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["pendiente", "parcial", "completa"] },
+        "technologyScope": { "type": "string" },
+        "expenseCategory": { "type": "string" },
+        "subtotalAmount": { "type": "number" },
+        "ivaAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "items": { "type": "array", "items": { "type": "object" } },
+        "driveFolderId": { "type": "string" },
+        "driveFolderUrl": { "type": "string" },
+        "originalFileUrl": { "type": "string" },
+        "partialPdfUrl": { "type": "string" },
+        "completePdfUrl": { "type": "string" }
+      },
+      "required": ["name", "date", "providerId", "providerName", "status", "items"]
+    },
+    "CatalogItem": {
+      "title": "CatalogItem",
+      "description": "Reference catalog of spare parts, accessories and services with price history",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 250 },
+        "normalizedName": { "type": "string", "maxLength": 250 },
+        "technologyType": { "type": "string" },
+        "technologyScope": { "type": "string" },
+        "lastUnitPrice": { "type": "number" },
+        "averagePrice": { "type": "number" },
+        "lastProviderName": { "type": "string" },
+        "lastPurchaseDate": { "type": "string" },
+        "priceHistory": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["name", "normalizedName", "lastUnitPrice", "priceHistory"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Estimated budget built from catalog items and quantities",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string" },
+        "technologyScope": { "type": "string" },
+        "ivaPercentage": { "type": "number" },
+        "subtotalAmount": { "type": "number" },
+        "ivaAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "items": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["name", "date", "totalAmount", "items"]
     }
   },
   "firestore": {
@@ -238,6 +295,18 @@
     "/obsolescence_evaluations/{evalId}": {
       "schema": "ObsolescenceEvaluation",
       "description": "Obsolescence evaluation records"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Provider invoices, item costs and delivery checklist tracking"
+    },
+    "/catalog_items/{itemId}": {
+      "schema": "CatalogItem",
+      "description": "Item and spare parts cost catalog synced from invoices"
+    },
+    "/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Saved budget simulations and estimates"
     }
   }
 }

@@ -58,6 +58,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     compliance: { view: true, create: true, edit: true, delete: true },
                     alerts: { view: true, create: true, edit: true, delete: true },
                     providers: { view: true, create: true, edit: true, delete: true },
+                    invoices: { view: true, create: true, edit: true, delete: true },
+                    expenses: { view: true, create: true, edit: true, delete: true },
+                    catalog: { view: true, create: true, edit: true, delete: true },
                     schedule: { view: true, create: true, edit: true, delete: true },
                     forms: { view: true, create: true, edit: true, delete: true },
                     users: { view: true, create: true, edit: true, delete: true }
@@ -97,6 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                  compliance: { view: true, create: true, edit: true, delete: true },
                  alerts: { view: true, create: true, edit: true, delete: true },
                  providers: { view: true, create: true, edit: true, delete: true },
+                 invoices: { view: true, create: true, edit: true, delete: true },
+                 expenses: { view: true, create: true, edit: true, delete: true },
+                 catalog: { view: true, create: true, edit: true, delete: true },
                  schedule: { view: true, create: true, edit: true, delete: true },
                  forms: { view: true, create: true, edit: true, delete: true },
                  users: { view: true, create: true, edit: true, delete: true }

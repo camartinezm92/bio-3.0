@@ -136,9 +136,10 @@ async function startServer() {
 
   // Helpers para Google Drive
   async function getOrCreateFolder(drive: any, folderName: string, parentId?: string): Promise<string> {
+    const safeName = folderName.replace(/'/g, "\\'");
     const query = parentId 
-      ? `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
-      : `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      ? `name='${safeName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+      : `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     
     try {
       const response = await drive.files.list({
@@ -712,6 +713,30 @@ async function startServer() {
           } else {
             parentId = await getOrCreateFolder(drive, 'Obsolescencia Biomédica', mainObsId);
           }
+        } else if (folderType === 'facturas' || folderType === 'invoices') {
+          const existingInvFolderId = req.body.invoiceFolderId;
+          let validExisting = false;
+          if (existingInvFolderId) {
+            try {
+              const checkRes = await drive.files.get({ fileId: existingInvFolderId, fields: 'id, trashed', supportsAllDrives: true });
+              if (checkRes.data && !checkRes.data.trashed) {
+                parentId = existingInvFolderId;
+                validExisting = true;
+              }
+            } catch (e) {
+              validExisting = false;
+            }
+          }
+          if (!validExisting) {
+            const mainFacturasId = await getOrCreateFolder(drive, 'Facturas', rootFolderId);
+            const cleanProvider = String(req.body.providerName || 'Proveedor General').trim() || 'Proveedor General';
+            const provFolderId = await getOrCreateFolder(drive, cleanProvider, mainFacturasId);
+            const invDate = String(req.body.invoiceDate || new Date().toISOString().slice(0, 10)).trim();
+            const invName = String(req.body.invoiceName || 'Factura').trim();
+            const invFolderName = String(req.body.invoiceFolderName || `${invDate} - ${invName}`).trim();
+            parentId = await getOrCreateFolder(drive, invFolderName, provFolderId);
+            (req as any)._providerFolderId = provFolderId;
+          }
         }
       }
 
@@ -736,7 +761,10 @@ async function startServer() {
         status: 'ok',
         fileId: upload.data.id,
         webViewLink: fileUrl,
-        url: fileUrl
+        url: fileUrl,
+        folderId: parentId,
+        folderUrl: parentId ? `https://drive.google.com/drive/folders/${parentId}` : undefined,
+        providerFolderId: (req as any)._providerFolderId || req.body.providerFolderId || undefined
       });
 
     } catch (error: any) {

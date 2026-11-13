@@ -378,4 +378,106 @@ export interface MinorDeviceReport {
   createdAt?: any;
 }
 
+export interface InvoiceItem {
+  id: string;
+  name: string;
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  technologyType?: string;
+  equipmentId?: string;
+  equipmentName?: string;
+  catalogItemId?: string;
+  completed: boolean;
+  deliveredAt?: string;
+  observations?: string;
+}
+
+export interface Invoice {
+  id: string;
+  name: string;
+  date: string;
+  providerId: string;
+  providerName: string;
+  technologyScope?: TechnologyScope;
+  expenseCategory?: string;
+  subtotalAmount?: number;
+  ivaAmount?: number;
+  totalAmount?: number;
+  status: 'pendiente' | 'parcial' | 'completa';
+  items: InvoiceItem[];
+  notes?: string;
+  driveFolderId?: string;
+  driveFolderUrl?: string;
+  providerDriveFolderId?: string;
+  originalFileName?: string;
+  originalFileUrl?: string;
+  originalFileDriveId?: string;
+  originalFileMimeType?: string;
+  partialPdfUrl?: string;
+  partialPdfDriveId?: string;
+  completePdfUrl?: string;
+  completePdfDriveId?: string;
+  completedAt?: string;
+  createdBy?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export interface CatalogPriceEntry {
+  date: string;
+  unitPrice: number;
+  providerId?: string;
+  providerName: string;
+  invoiceId?: string;
+  invoiceName?: string;
+}
+
+export interface CatalogItem {
+  id: string;
+  name: string;
+  normalizedName: string;
+  unit?: string;
+  technologyType?: string;
+  technologyScope?: TechnologyScope;
+  lastUnitPrice: number;
+  averagePrice?: number;
+  lastProviderId?: string;
+  lastProviderName?: string;
+  lastPurchaseDate?: string;
+  priceHistory: CatalogPriceEntry[];
+  notes?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export interface BudgetItem {
+  id: string;
+  catalogItemId?: string;
+  name: string;
+  technologyType?: string;
+  referenceProvider?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  notes?: string;
+}
+
+export interface Budget {
+  id: string;
+  name: string;
+  date: string;
+  description?: string;
+  technologyScope?: TechnologyScope;
+  ivaPercentage: number;
+  subtotalAmount: number;
+  ivaAmount: number;
+  totalAmount: number;
+  items: BudgetItem[];
+  createdBy?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 export * from './obsolescence';

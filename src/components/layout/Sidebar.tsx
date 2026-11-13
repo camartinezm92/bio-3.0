@@ -14,7 +14,10 @@ import {
   Clock,
   UserCog,
   Layers,
-  Gauge
+  Gauge,
+  Receipt,
+  Wallet,
+  Calculator
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -72,6 +75,9 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     { icon: ShieldCheck, label: 'Normativa', href: '/compliance', sectionId: 'compliance' },
     { icon: AlertTriangle, label: 'Alertas', href: '/alerts', sectionId: 'alerts' },
     { icon: Users, label: 'Proveedores', href: '/providers', sectionId: 'providers' },
+    { icon: Receipt, label: 'Facturas', href: '/invoices', sectionId: 'invoices' },
+    { icon: Wallet, label: 'Gastos', href: '/expenses', sectionId: 'expenses' },
+    { icon: Calculator, label: 'Catálogo / Presupuestos', href: '/catalog-budgets', sectionId: 'catalog' },
     { icon: Settings, label: 'Configuración', href: '/settings', sectionId: 'settings' },
   ];
 
@@ -81,6 +87,9 @@ export function Sidebar({ isCollapsed }: { isCollapsed?: boolean }) {
     if (item.sectionId === 'dashboard') return true;
     if (item.sectionId === 'minor_devices') return true;
     if (item.sectionId === 'obsolescence') return true;
+    if (item.sectionId === 'invoices') return user?.permissions?.invoices?.view !== false;
+    if (item.sectionId === 'expenses') return user?.permissions?.expenses?.view !== false;
+    if (item.sectionId === 'catalog') return user?.permissions?.catalog?.view !== false;
     if (item.sectionId === 'settings') return true;
     return user?.permissions?.[item.sectionId]?.view;
   });

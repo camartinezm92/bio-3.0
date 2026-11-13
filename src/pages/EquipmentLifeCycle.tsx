@@ -18,11 +18,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
-import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2, AlertTriangle, UploadCloud } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, FileText, History, ShieldCheck, Wrench, Download, ExternalLink, Info, Loader2, Clock, Pause, Image as ImageIcon, Trash2, AlertTriangle, UploadCloud, Receipt } from 'lucide-react';
 import { deleteDoc, doc, onSnapshot, collection, query, where, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation, ObsolescenceCase } from '@/types';
+import { Equipment, MaintenanceReport, Transfer, ObsolescenceEvaluation, ObsolescenceCase, Invoice } from '@/types';
 import { syncEquipmentWithHistory } from '@/lib/sync-logic';
+import { formatCOP } from '@/lib/financialUtils';
 
 import MaintenanceForm from '@/components/forms/MaintenanceForm';
 import { CalibrationForm } from '@/components/forms/CalibrationForm';
@@ -58,6 +59,19 @@ export default function EquipmentLifeCycle() {
   const [obsolescenceCases, setObsolescenceCases] = React.useState<ObsolescenceCase[]>([]);
   const [showCaseModal, setShowCaseModal] = React.useState(false);
   const [showBatchModal, setShowBatchModal] = React.useState(false);
+  const [linkedCosts, setLinkedCosts] = React.useState<{
+    invoiceId: string;
+    invoiceName: string;
+    date: string;
+    providerName: string;
+    itemName: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    completed: boolean;
+    originalFileUrl?: string;
+    driveFolderUrl?: string;
+  }[]>([]);
   const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   const handleDownloadReport = (report: MaintenanceReport) => {
@@ -209,12 +223,45 @@ export default function EquipmentLifeCycle() {
       console.warn("EquipmentLifeCycle cases snapshot error:", error);
     });
 
+    const qInvoices = query(collection(db, 'invoices'), orderBy('date', 'desc'));
+    const unsubscribeInvoices = onSnapshot(qInvoices, (snapshot) => {
+      const matched: typeof linkedCosts = [];
+      for (const d of snapshot.docs) {
+        const inv = { id: d.id, ...d.data() } as Invoice;
+        const items = Array.isArray(inv.items) ? inv.items : [];
+        for (const it of items) {
+          if (it.equipmentId === id) {
+            const qty = Number(it.quantity) || 1;
+            const unitP = Number(it.unitPrice) || 0;
+            const lineTotal = typeof it.totalPrice === 'number' ? it.totalPrice : qty * unitP;
+            matched.push({
+              invoiceId: inv.id,
+              invoiceName: inv.name,
+              date: inv.date,
+              providerName: inv.providerName,
+              itemName: it.name,
+              quantity: qty,
+              unitPrice: unitP,
+              totalPrice: lineTotal,
+              completed: Boolean(it.completed),
+              originalFileUrl: inv.originalFileUrl,
+              driveFolderUrl: inv.driveFolderUrl
+            });
+          }
+        }
+      }
+      setLinkedCosts(matched);
+    }, (error) => {
+      console.warn("EquipmentLifeCycle invoices snapshot error:", error);
+    });
+
     return () => {
       unsubscribeEq();
       unsubscribeReports();
       unsubscribeTransfers();
       unsubscribeObs();
       unsubscribeCases();
+      unsubscribeInvoices();
     };
   }, [id]);
 
@@ -624,14 +671,17 @@ export default function EquipmentLifeCycle() {
 
         <div className="md:col-span-2 space-y-8">
           <Tabs defaultValue="technical" className="w-full">
-            <TabsList className="grid w-full grid-cols-5 bg-slate-100 p-1.5 rounded-2xl h-14">
-              <TabsTrigger value="technical" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Técnico</TabsTrigger>
-              <TabsTrigger value="regulatory" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">
+            <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 bg-slate-100 p-1.5 rounded-2xl h-auto sm:h-14 gap-1">
+              <TabsTrigger value="technical" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">Técnico</TabsTrigger>
+              <TabsTrigger value="regulatory" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">
                 {currentScope === 'biomedical' ? 'Normativo' : currentScope === 'computing' ? 'Red y TIC' : 'Industrial'}
               </TabsTrigger>
-              <TabsTrigger value="history" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Mantos.</TabsTrigger>
-              <TabsTrigger value="transfers" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Traslados</TabsTrigger>
-              <TabsTrigger value="docs" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md">Docs</TabsTrigger>
+              <TabsTrigger value="history" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">Mantos.</TabsTrigger>
+              <TabsTrigger value="transfers" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">Traslados</TabsTrigger>
+              <TabsTrigger value="costs" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">
+                Costos {linkedCosts.length > 0 ? `(${linkedCosts.length})` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="docs" className="rounded-xl font-bold text-xs uppercase tracking-widest data-[state=active]:shadow-md py-2">Docs</TabsTrigger>
             </TabsList>
             
             <TabsContent value="technical" className="space-y-6 pt-6">
@@ -1274,6 +1324,101 @@ export default function EquipmentLifeCycle() {
                   </div>
                 </div>
               )}
+            </TabsContent>
+
+            <TabsContent value="costs" className="space-y-6 pt-6">
+              <Card className="border-none shadow-xl shadow-slate-200/50 rounded-3xl overflow-hidden">
+                <CardHeader className="bg-slate-50/50 border-b px-8 py-5 flex flex-row items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                      <Receipt className="h-5 w-5 text-emerald-600" />
+                      Historial de Costos, Repuestos y Facturas Asociadas
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      Insumos, repuestos y servicios facturados que fueron vinculados directamente a este equipo.
+                    </CardDescription>
+                  </div>
+                  <div className="text-right font-mono tabular-nums">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Total Invertido
+                    </span>
+                    <span className="text-xl font-black text-emerald-700">
+                      {formatCOP(linkedCosts.reduce((s, c) => s + (c.totalPrice || 0), 0))}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {linkedCosts.length === 0 ? (
+                    <div className="p-10 text-center space-y-2">
+                      <Receipt className="h-8 w-8 text-slate-300 mx-auto" />
+                      <p className="text-sm font-bold text-slate-600">
+                        Sin costos o facturas vinculadas a este equipo
+                      </p>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto">
+                        Al registrar una factura en el módulo de Facturas, puedes asociar un ítem directamente a este equipo para llevar el acumulado de inversión aquí.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-bold uppercase tracking-wider">
+                          <tr>
+                            <th className="px-6 py-3.5">Fecha</th>
+                            <th className="px-6 py-3.5">Ítem / Repuesto</th>
+                            <th className="px-6 py-3.5">Proveedor · Factura</th>
+                            <th className="px-6 py-3.5 text-center">Cant.</th>
+                            <th className="px-6 py-3.5 text-right">Valor</th>
+                            <th className="px-6 py-3.5 text-right">Soporte</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {linkedCosts.map((c, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/60">
+                              <td className="px-6 py-3.5 font-mono text-slate-600 tabular-nums whitespace-nowrap">
+                                {c.date}
+                              </td>
+                              <td className="px-6 py-3.5 font-bold text-slate-900">
+                                {c.itemName}
+                                <span className={cn(
+                                  'ml-2 text-[10px] font-semibold',
+                                  c.completed ? 'text-emerald-700' : 'text-amber-700'
+                                )}>
+                                  ({c.completed ? 'Entregado' : 'Pendiente'})
+                                </span>
+                              </td>
+                              <td className="px-6 py-3.5 text-slate-600">
+                                {c.providerName} · {c.invoiceName}
+                              </td>
+                              <td className="px-6 py-3.5 text-center font-mono tabular-nums">
+                                {c.quantity}
+                              </td>
+                              <td className="px-6 py-3.5 text-right font-mono font-bold text-slate-900 tabular-nums">
+                                {formatCOP(c.totalPrice)}
+                              </td>
+                              <td className="px-6 py-3.5 text-right">
+                                {(c.originalFileUrl || c.driveFolderUrl) ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => window.open(c.originalFileUrl || c.driveFolderUrl, '_blank')}
+                                    className="h-7 px-2.5 rounded-lg text-[11px] border-slate-200"
+                                  >
+                                    <ExternalLink className="h-3 w-3 mr-1" />
+                                    Ver
+                                  </Button>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>

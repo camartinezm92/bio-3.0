@@ -21,6 +21,9 @@ import PendingApproval from './pages/PendingApproval';
 import MinorDevices from './pages/MinorDevices';
 import ObsolescenceMatrix from './pages/ObsolescenceMatrix';
 import TechHub from './pages/TechHub';
+import Invoices from './pages/Invoices';
+import Expenses from './pages/Expenses';
+import CatalogAndBudgets from './pages/CatalogAndBudgets';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { TechnologyScopeProvider } from './lib/TechnologyScopeContext';
 import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
@@ -42,6 +45,9 @@ function PageTitle() {
       '/compliance': 'Cumplimiento Normativo',
       '/alerts': 'Alertas Críticas',
       '/providers': 'Proveedores Móviles',
+      '/invoices': 'Control de Facturas',
+      '/expenses': 'Control de Gastos',
+      '/catalog-budgets': 'Catálogo y Presupuestos',
       '/settings': 'Configuración de Alertas',
       '/users': 'Gestión de Usuarios',
       '/minor-devices': 'Dispositivos e Instrumental',
@@ -145,6 +151,9 @@ function AppRoutes() {
         <Route path="/compliance/history" element={<ComplianceHistory />} />
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/providers" element={<Providers />} />
+        <Route path="/invoices" element={<Invoices />} />
+        <Route path="/expenses" element={<Expenses />} />
+        <Route path="/catalog-budgets" element={<CatalogAndBudgets />} />
         <Route path="/minor-devices" element={<MinorDevices />} />
         <Route path="/obsolescence" element={<ObsolescenceMatrix />} />
         <Route path="/settings" element={<Settings />} />

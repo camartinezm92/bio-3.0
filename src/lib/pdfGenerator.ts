@@ -1,9 +1,10 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Equipment, MaintenanceReport, ComplianceSubmission, Transfer, ObsolescenceCase, ObsolescenceCaseClosure } from '@/types';
+import { Equipment, MaintenanceReport, ComplianceSubmission, Transfer, ObsolescenceCase, ObsolescenceCaseClosure, Invoice, Budget } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { resolveEquipmentScope, getEquipmentCVHeaders, getMaintenanceReportHeaders } from '@/lib/scopeUtils';
+import { formatCOP } from '@/lib/financialUtils';
 
 export const generateEquipmentCVPDF = (equipment: Equipment, reports: MaintenanceReport[] = [], transfers: Transfer[] = [], returnBase64?: boolean) => {
   const doc = new jsPDF();
@@ -1700,5 +1701,575 @@ export const generateObsolescenceCasePDF = (obsCase?: ObsolescenceCase | null, r
     const safeSerial = (obsCase.serial || 'SN').replace(/[^a-zA-Z0-9_-]/g, '_');
     doc.save(`Acta_Obsolescencia_${safeCaseNum}_${safeSerial}.pdf`);
   }
+};
+
+export const generateInvoiceReportPDF = (
+  invoice?: Invoice | null,
+  returnBase64?: boolean,
+  originalImageDataUrl?: string
+) => {
+  if (!invoice) {
+    console.warn('generateInvoiceReportPDF: No invoice provided.');
+    return returnBase64 ? '' : undefined;
+  }
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const totalItems = items.length;
+  const completedItems = items.filter(it => it.completed).length;
+  const pendingItems = totalItems - completedItems;
+  const progressPct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+  const isComplete = invoice.status === 'completa' || (totalItems > 0 && completedItems === totalItems);
+
+  const statusText = isComplete
+    ? 'COMPLETADA (100% RECIBIDA)'
+    : completedItems > 0
+      ? `ENTREGA PARCIAL (${completedItems}/${totalItems} ÍTEMS)`
+      : `PENDIENTE DE ENTREGA (0/${totalItems} ÍTEMS)`;
+
+  const statusColor: [number, number, number] = isComplete
+    ? [16, 120, 60]
+    : completedItems > 0
+      ? [180, 100, 10]
+      : [185, 28, 28];
+
+  // 1. Header Institucional
+  autoTable(doc, {
+    startY: margin,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: {
+      0: { cellWidth: 35, halign: 'center', valign: 'middle' },
+      1: { cellWidth: 'auto' },
+      2: { cellWidth: 'auto' },
+      3: { cellWidth: 'auto' }
+    },
+    body: [
+      [
+        { content: '', rowSpan: 5 },
+        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9.5 } }
+      ],
+      [
+        {
+          content: isComplete
+            ? 'ACTA DE RECEPCIÓN Y CUMPLIMIENTO COMPLETO DE FACTURA'
+            : 'REPORTE DE SEGUIMIENTO DE ENTREGAS Y PENDIENTES DE FACTURA',
+          colSpan: 3,
+          styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 }
+        }
+      ],
+      [
+        { content: 'Macroproceso: Gestión de Tecnología y Suministros', styles: { fontStyle: 'bold' } },
+        { content: 'Proceso: Control de Entregas de Proveedores y Facturación', colSpan: 2, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: `Fecha Factura: ${invoice.date || 'N/A'}`, styles: { fontStyle: 'bold' } },
+        { content: `Fecha Emisión Acta: ${format(new Date(), 'yyyy-MM-dd HH:mm')}`, styles: { fontStyle: 'bold' } },
+        { content: 'Código: GTE-FOR-FAC-001 | V.01', styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: `Estado: ${statusText}`, styles: { fontStyle: 'bold', textColor: statusColor } },
+        { content: `Factura: ${invoice.name || 'N/A'}`, colSpan: 2, styles: { fontStyle: 'bold' } }
+      ]
+    ],
+    didDrawCell: (data) => {
+      if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
+        try {
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 2, 31, 20);
+        } catch (e) { }
+      }
+    }
+  });
+
+  let currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  // 2. Información del Proveedor y Factura
+  const computedSubtotal = items.reduce(
+    (sum, it) => sum + (Number(it.totalPrice) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1)),
+    0
+  );
+  const displaySubtotal = typeof invoice.subtotalAmount === 'number' ? invoice.subtotalAmount : computedSubtotal;
+  const displayIva = typeof invoice.ivaAmount === 'number' ? invoice.ivaAmount : 0;
+  const displayTotal =
+    typeof invoice.totalAmount === 'number' ? invoice.totalAmount : displaySubtotal + displayIva;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.5, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [[{ content: '1. IDENTIFICACIÓN DEL PROVEEDOR Y DOCUMENTO SOPORTE', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }]],
+    body: [
+      [
+        { content: 'Proveedor:', styles: { fontStyle: 'bold', cellWidth: 34 } },
+        { content: invoice.providerName || 'N/A', styles: { fontStyle: 'bold' } },
+        { content: 'Nombre / Ref. Factura:', styles: { fontStyle: 'bold', cellWidth: 38 } },
+        { content: invoice.name || 'N/A', styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'Fecha de Factura:', styles: { fontStyle: 'bold' } },
+        { content: invoice.date || 'N/A' },
+        { content: 'Cumplimiento Total:', styles: { fontStyle: 'bold' } },
+        { content: `${completedItems} de ${totalItems} ítems (${progressPct}%)`, styles: { fontStyle: 'bold', textColor: statusColor } }
+      ],
+      [
+        { content: 'Categoría de Gasto:', styles: { fontStyle: 'bold' } },
+        { content: invoice.expenseCategory || 'General / Suministros' },
+        { content: 'Valor Total Factura:', styles: { fontStyle: 'bold' } },
+        { content: displayTotal > 0 ? formatCOP(displayTotal) : 'No especificado', styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'Soporte Original:', styles: { fontStyle: 'bold' } },
+        { content: invoice.originalFileName || 'Documento adjunto en carpeta Drive', colSpan: 3 }
+      ],
+      [
+        { content: 'Notas / Observaciones:', styles: { fontStyle: 'bold' } },
+        { content: invoice.notes || 'Sin observaciones generales adicionales.', colSpan: 3 }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  // 3. Tabla de Ítems (Entregados vs Pendientes + Costos y Tecnología)
+  const rows = items.map((item, idx) => {
+    const qty = item.quantity !== undefined && item.quantity !== null ? Number(item.quantity) : 1;
+    const unitP = Number(item.unitPrice) || 0;
+    const lineTotal = typeof item.totalPrice === 'number' ? item.totalPrice : unitP * qty;
+    const techLabel = [item.technologyType, item.equipmentName].filter(Boolean).join(' · ') || 'General';
+    return [
+      idx + 1,
+      item.name || 'Ítem sin descripción',
+      techLabel,
+      `${qty}${item.unit ? ` ${item.unit}` : ''}`,
+      unitP > 0 ? formatCOP(unitP) : '-',
+      lineTotal > 0 ? formatCOP(lineTotal) : '-',
+      item.completed ? 'COMPLETADO' : 'PENDIENTE',
+      item.completed ? (item.deliveredAt || invoice.date || 'Registrado') : 'Pendiente'
+    ];
+  });
+
+  if (rows.length === 0) {
+    rows.push(['-', 'No se registraron ítems en la lista de seguimiento.', '-', '-', '-', '-', '-', '-']);
+  }
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 6.8, cellPadding: 1.3, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: '2. DETALLE DE ÍTEMS FACTURADOS, COSTOS, TECNOLOGÍA Y ENTREGAS', colSpan: 8, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0], fontSize: 7.5 } }],
+      [
+        { content: '#', styles: { halign: 'center', cellWidth: 7, fontStyle: 'bold' } },
+        { content: 'Descripción del Ítem / Insumo', styles: { halign: 'left', fontStyle: 'bold' } },
+        { content: 'Tecnología / Equipo', styles: { halign: 'left', cellWidth: 32, fontStyle: 'bold' } },
+        { content: 'Cant.', styles: { halign: 'center', cellWidth: 12, fontStyle: 'bold' } },
+        { content: 'V. Unitario', styles: { halign: 'right', cellWidth: 21, fontStyle: 'bold' } },
+        { content: 'Subtotal', styles: { halign: 'right', cellWidth: 22, fontStyle: 'bold' } },
+        { content: 'Estado', styles: { halign: 'center', cellWidth: 21, fontStyle: 'bold' } },
+        { content: 'F. Entrega', styles: { halign: 'center', cellWidth: 19, fontStyle: 'bold' } }
+      ]
+    ],
+    body: rows,
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 6) {
+        const val = String(data.cell.raw || '');
+        if (val === 'COMPLETADO') {
+          data.cell.styles.textColor = [16, 120, 60];
+          data.cell.styles.fontStyle = 'bold';
+        } else if (val === 'PENDIENTE') {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+      if (data.section === 'body' && (data.column.index === 4 || data.column.index === 5)) {
+        data.cell.styles.halign = 'right';
+      }
+    },
+    foot: [
+      [
+        {
+          content: `RESUMEN: ${completedItems} Completados | ${pendingItems} Pendientes (${progressPct}%)` +
+            (displayTotal > 0
+              ? `   ||   Subtotal: ${formatCOP(displaySubtotal)} | IVA/Otros: ${formatCOP(displayIva)} | TOTAL FACTURA: ${formatCOP(displayTotal)}`
+              : ''),
+          colSpan: 8,
+          styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.2, fillColor: [245, 247, 250], textColor: [15, 23, 42] }
+        }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 6;
+
+  if (currentY + 26 > pageHeight - margin) {
+    doc.addPage();
+    currentY = margin + 10;
+  }
+
+  // 4. Firmas
+  const colW = contentWidth / 2;
+  const sigH = 22;
+
+  doc.rect(margin, currentY, colW - 2, sigH);
+  doc.rect(margin + colW + 2, currentY, colW - 2, sigH);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('RECIBIDO / VERIFICADO POR (UCI HONDA)', margin + 3, currentY + 5);
+  doc.text('PROVEEDOR / ENTREGA', margin + colW + 5, currentY + 5);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Responsable: ${invoice.createdBy || 'Ingeniería Biomédica / Compras'}`, margin + 3, currentY + sigH - 6);
+  doc.text('Medicina Intensiva del Tolima S.A. - UCI Honda', margin + 3, currentY + sigH - 2.5);
+
+  doc.text(`Proveedor: ${invoice.providerName || 'N/A'}`, margin + colW + 5, currentY + sigH - 6);
+  doc.text(`Factura: ${invoice.name || 'N/A'}`, margin + colW + 5, currentY + sigH - 2.5);
+
+  // Optional embedded image annex if uploaded in current browser session
+  if (originalImageDataUrl && originalImageDataUrl.startsWith('data:image/')) {
+    try {
+      doc.addPage();
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`ANEXO: SOPORTE ORIGINAL DE FACTURA (${invoice.name})`, margin, margin + 6);
+      const imgProps = doc.getImageProperties(originalImageDataUrl);
+      const maxImgW = contentWidth;
+      const maxImgH = pageHeight - margin * 2 - 14;
+      const ratio = Math.min(maxImgW / imgProps.width, maxImgH / imgProps.height);
+      const drawW = imgProps.width * ratio;
+      const drawH = imgProps.height * ratio;
+      doc.addImage(originalImageDataUrl, margin, margin + 10, drawW, drawH);
+    } catch (imgErr) {
+      console.warn('No se pudo incrustar imagen anexa en PDF de factura:', imgErr);
+    }
+  }
+
+  // Institutional Footer
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(
+      `GTE-FOR-FAC-001 | Control y Seguimiento de Facturas | ${invoice.providerName} - ${invoice.name} | Página ${i} de ${pageCount}`,
+      pageWidth / 2,
+      pageHeight - 5,
+      { align: 'center' }
+    );
+  }
+
+  const safeDate = (invoice.date || format(new Date(), 'yyyy-MM-dd')).replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safeName = (invoice.name || 'Factura').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const prefix = isComplete ? 'COMPLETO' : 'SEGUIMIENTO_PARCIAL';
+
+  if (returnBase64) {
+    return doc.output('datauristring');
+  } else {
+    doc.save(`${safeDate}_${prefix}_${safeName}.pdf`);
+  }
+};
+
+export const generateExpensesReportPDF = (params: {
+  year: string;
+  monthLabel: string;
+  scopeLabel: string;
+  totalSpent: number;
+  invoiceCount: number;
+  completeSpent: number;
+  inProgressSpent: number;
+  monthlyRows: { month: string; count: number; total: number; sharePct: number }[];
+  providerRows: { name: string; count: number; total: number; sharePct: number }[];
+  techRows: { name: string; itemCount: number; total: number; sharePct: number }[];
+}) => {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+
+  autoTable(doc, {
+    startY: margin,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: { 0: { cellWidth: 35, halign: 'center', valign: 'middle' } },
+    body: [
+      [
+        { content: '', rowSpan: 4 },
+        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9.5 } }
+      ],
+      [
+        { content: 'REPORTE CONSOLIDADO DE GASTOS E INVERSIÓN TECNOLÓGICA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 } }
+      ],
+      [
+        { content: `Año: ${params.year}`, styles: { fontStyle: 'bold' } },
+        { content: `Período: ${params.monthLabel}`, styles: { fontStyle: 'bold' } },
+        { content: `Área: ${params.scopeLabel}`, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: `Emisión: ${format(new Date(), 'yyyy-MM-dd HH:mm')}`, styles: { fontStyle: 'bold' } },
+        { content: 'Código: GTE-FOR-GST-001 | V.01', colSpan: 2, styles: { fontStyle: 'bold' } }
+      ]
+    ],
+    didDrawCell: (data) => {
+      if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
+        try {
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 1.5, 31, 18);
+        } catch (e) { }
+      }
+    }
+  });
+
+  let currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.5, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [[{ content: '1. RESUMEN EJECUTIVO DEL PERÍODO', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }]],
+    body: [
+      [
+        { content: 'Total Invertido:', styles: { fontStyle: 'bold' } },
+        { content: formatCOP(params.totalSpent), styles: { fontStyle: 'bold', textColor: [15, 23, 42] } },
+        { content: 'Facturas Contabilizadas:', styles: { fontStyle: 'bold' } },
+        { content: String(params.invoiceCount), styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: 'En Facturas Completas (100%):', styles: { fontStyle: 'bold' } },
+        { content: formatCOP(params.completeSpent), styles: { textColor: [16, 120, 60], fontStyle: 'bold' } },
+        { content: 'En Curso (Pendiente / Parcial):', styles: { fontStyle: 'bold' } },
+        { content: formatCOP(params.inProgressSpent), styles: { textColor: [180, 100, 10], fontStyle: 'bold' } }
+      ]
+    ]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.3, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: `2. INVERSIÓN MES A MES (${params.year})`, colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }],
+      [
+        { content: 'Mes', styles: { fontStyle: 'bold' } },
+        { content: 'N° Facturas', styles: { halign: 'center', fontStyle: 'bold', cellWidth: 28 } },
+        { content: 'Total Invertido', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 42 } },
+        { content: '% Participación', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 32 } }
+      ]
+    ],
+    body: params.monthlyRows.map((r) => [
+      r.month,
+      { content: String(r.count), styles: { halign: 'center' } },
+      { content: formatCOP(r.total), styles: { halign: 'right', fontStyle: r.total > 0 ? 'bold' : 'normal' } },
+      { content: `${r.sharePct.toFixed(1)}%`, styles: { halign: 'right' } }
+    ])
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.3, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: '3. GASTO ACUMULADO POR PROVEEDOR', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }],
+      [
+        { content: 'Proveedor', styles: { fontStyle: 'bold' } },
+        { content: 'Facturas', styles: { halign: 'center', fontStyle: 'bold', cellWidth: 24 } },
+        { content: 'Total Facturado', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 42 } },
+        { content: '% del Total', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 32 } }
+      ]
+    ],
+    body: params.providerRows.length > 0
+      ? params.providerRows.map((p) => [
+          p.name,
+          { content: String(p.count), styles: { halign: 'center' } },
+          { content: formatCOP(p.total), styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: `${p.sharePct.toFixed(1)}%`, styles: { halign: 'right' } }
+        ])
+      : [['Sin datos de proveedores para el período seleccionado', '-', '-', '-']]
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.3, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: '4. GASTO POR TIPO DE TECNOLOGÍA', colSpan: 4, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }],
+      [
+        { content: 'Tecnología / Línea', styles: { fontStyle: 'bold' } },
+        { content: 'Ítems', styles: { halign: 'center', fontStyle: 'bold', cellWidth: 24 } },
+        { content: 'Total Invertido', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 42 } },
+        { content: '% del Total', styles: { halign: 'right', fontStyle: 'bold', cellWidth: 32 } }
+      ]
+    ],
+    body: params.techRows.length > 0
+      ? params.techRows.map((t) => [
+          t.name,
+          { content: String(t.itemCount), styles: { halign: 'center' } },
+          { content: formatCOP(t.total), styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: `${t.sharePct.toFixed(1)}%`, styles: { halign: 'right' } }
+        ])
+      : [['Sin ítems asociados a tecnologías específicas', '-', '-', '-']]
+  });
+
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(
+      `GTE-FOR-GST-001 | Control de Gastos e Inversión Tecnológica | ${params.year} - ${params.monthLabel} | Página ${i} de ${pageCount}`,
+      pageWidth / 2,
+      pageHeight - 5,
+      { align: 'center' }
+    );
+  }
+
+  doc.save(`Reporte_Gastos_${params.year}_${params.monthLabel.replace(/\s+/g, '_')}.pdf`);
+};
+
+export const generateBudgetPDF = (budget: Budget) => {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+
+  autoTable(doc, {
+    startY: margin,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: { 0: { cellWidth: 35, halign: 'center', valign: 'middle' } },
+    body: [
+      [
+        { content: '', rowSpan: 4 },
+        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9.5 } }
+      ],
+      [
+        { content: 'ESTIMACIÓN Y PRESUPUESTO DE REPUESTOS / TECNOLOGÍA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 } }
+      ],
+      [
+        { content: `Presupuesto: ${budget.name}`, colSpan: 2, styles: { fontStyle: 'bold' } },
+        { content: `Fecha: ${budget.date}`, styles: { fontStyle: 'bold' } }
+      ],
+      [
+        { content: `Elaborado por: ${budget.createdBy || 'Ingeniería Biomédica'}`, colSpan: 2, styles: { fontStyle: 'bold' } },
+        { content: 'Código: GTE-FOR-PRE-001 | V.01', styles: { fontStyle: 'bold' } }
+      ]
+    ],
+    didDrawCell: (data) => {
+      if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
+        try {
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 1.5, 31, 18);
+        } catch (e) { }
+      }
+    }
+  });
+
+  let currentY = (doc as any).lastAutoTable.finalY + 4;
+
+  if (budget.description) {
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      tableWidth: contentWidth,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1 },
+      head: [[{ content: 'JUSTIFICACIÓN / ALCANCE DEL PRESUPUESTO', styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }]],
+      body: [[budget.description]]
+    });
+    currentY = (doc as any).lastAutoTable.finalY + 4;
+  }
+
+  const rows = (budget.items || []).map((it, idx) => [
+    idx + 1,
+    it.name,
+    it.technologyType || 'General',
+    it.referenceProvider || '-',
+    String(it.quantity),
+    formatCOP(it.unitPrice),
+    formatCOP(it.totalPrice)
+  ]);
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    theme: 'grid',
+    styles: { fontSize: 7.2, cellPadding: 1.4, lineColor: [0, 0, 0], lineWidth: 0.1 },
+    head: [
+      [{ content: 'DETALLE DE ÍTEMS Y COSTOS ESTIMADOS', colSpan: 7, styles: { fillColor: [220, 225, 230], fontStyle: 'bold', textColor: [0, 0, 0] } }],
+      [
+        { content: '#', styles: { halign: 'center', cellWidth: 8, fontStyle: 'bold' } },
+        { content: 'Descripción del Ítem / Repuesto', styles: { fontStyle: 'bold' } },
+        { content: 'Tecnología', styles: { cellWidth: 28, fontStyle: 'bold' } },
+        { content: 'Proveedor Ref.', styles: { cellWidth: 30, fontStyle: 'bold' } },
+        { content: 'Cant.', styles: { halign: 'center', cellWidth: 14, fontStyle: 'bold' } },
+        { content: 'V. Unitario', styles: { halign: 'right', cellWidth: 25, fontStyle: 'bold' } },
+        { content: 'Subtotal', styles: { halign: 'right', cellWidth: 27, fontStyle: 'bold' } }
+      ]
+    ],
+    body: rows.length > 0 ? rows : [['-', 'Sin ítems en el presupuesto', '-', '-', '-', '-', '-']],
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 4) data.cell.styles.halign = 'center';
+      if (data.section === 'body' && (data.column.index === 5 || data.column.index === 6)) {
+        data.cell.styles.halign = 'right';
+      }
+    },
+    foot: [
+      [
+        {
+          content: `Subtotal: ${formatCOP(budget.subtotalAmount)}   |   IVA (${budget.ivaPercentage || 0}%): ${formatCOP(budget.ivaAmount)}   |   TOTAL PRESUPUESTADO: ${formatCOP(budget.totalAmount)}`,
+          colSpan: 7,
+          styles: { halign: 'right', fontStyle: 'bold', fontSize: 8, fillColor: [240, 244, 248], textColor: [15, 23, 42] }
+        }
+      ]
+    ]
+  });
+
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(
+      `GTE-FOR-PRE-001 | Presupuesto Estimado basado en Catálogo de Costos | ${budget.name} | Página ${i} de ${pageCount}`,
+      pageWidth / 2,
+      pageHeight - 5,
+      { align: 'center' }
+    );
+  }
+
+  const safeName = (budget.name || 'Presupuesto').replace(/[^a-zA-Z0-9_-]+/g, '_');
+  doc.save(`Presupuesto_${budget.date}_${safeName}.pdf`);
 };
 
