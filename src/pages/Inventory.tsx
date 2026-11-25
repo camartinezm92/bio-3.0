@@ -34,7 +34,8 @@ import {
   FileUp,
   FileText,
   ExternalLink,
-  Layers
+  Layers,
+  UploadCloud
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { 
@@ -63,6 +64,7 @@ import { resolveEquipmentScope } from '@/lib/scopeUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import EquipmentForm from '@/components/forms/EquipmentForm';
+import { MultiEquipmentBatchModal } from '@/components/forms/MultiEquipmentBatchModal';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Equipment } from '@/types';
@@ -94,6 +96,7 @@ export default function Inventory() {
   const [equipmentToChangeScope, setEquipmentToChangeScope] = React.useState<Equipment | null>(null);
   const [newScopeValue, setNewScopeValue] = React.useState<'biomedical' | 'computing' | 'infrastructure' | 'other'>('biomedical');
   const [updatingScope, setUpdatingScope] = React.useState(false);
+  const [showMultiBatchModal, setShowMultiBatchModal] = React.useState(false);
 
   const handleSort = (key: keyof Equipment) => {
     setSortConfig(prev => ({
@@ -477,9 +480,18 @@ export default function Inventory() {
             </h1>
             <p className="text-slate-500 mt-1 font-medium">{scopeConfig.description}</p>
           </div>
-          <Button onClick={() => setShowForm(true)} className="rounded-xl px-6 font-bold shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 shrink-0">
-            <Plus className="mr-2 h-5 w-5" /> Registrar Equipo
-          </Button>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowMultiBatchModal(true)}
+              className="rounded-xl px-4 font-bold border-slate-300 text-slate-700 hover:bg-slate-50 shrink-0"
+            >
+              <UploadCloud className="mr-2 h-4 w-4 text-primary" /> Cargue Masivo Multi-Equipo
+            </Button>
+            <Button onClick={() => setShowForm(true)} className="rounded-xl px-6 font-bold shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 shrink-0">
+              <Plus className="mr-2 h-5 w-5" /> Registrar Equipo
+            </Button>
+          </div>
         </div>
 
         {/* Global Statistics Cards - Now Functional Filters */}
@@ -1230,6 +1242,20 @@ export default function Inventory() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <MultiEquipmentBatchModal
+        open={showMultiBatchModal}
+        onOpenChange={setShowMultiBatchModal}
+        equipmentList={equipmentList}
+        onSuccess={({ count, equipmentCount }) => {
+          setShowMultiBatchModal(false);
+          setFeedback({
+            title: 'Cargue Masivo Completado',
+            message: `Se guardaron ${count} documento(s) en Google Drive y en el historial de ${equipmentCount} equipo(s), actualizando automáticamente sus fechas de mantenimiento y calibración.`,
+            type: 'success'
+          });
+        }}
+      />
 
       {/* In-app feedback modal */}
       {feedback && (

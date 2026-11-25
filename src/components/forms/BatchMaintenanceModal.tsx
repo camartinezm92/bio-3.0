@@ -102,10 +102,24 @@ export const BatchMaintenanceModal: React.FC<BatchMaintenanceModalProps> = ({
     return globalDate || new Date().toISOString().slice(0, 10);
   };
 
-  // Extract potential report number from filename (e.g., MP-1234, RP2024-001, etc.)
+  // Extract potential report number from filename (e.g., MFFL-26-09-002 - XZZS33457 - VENTILADOR.pdf, MP-1234, RP2024-001)
   const extractReportNumber = (filename: string, index: number): string => {
-    const clean = filename.replace(/\.[^/.]+$/, '');
-    const match = clean.match(/(?:RP|MP|MC|CAL|REP|NRO|N|DOC)[-_# ]*([a-zA-Z0-9]+)/i);
+    const clean = filename.replace(/\.[^/.]+$/, '').trim();
+
+    const parts = clean.split(/\s+-\s+/).map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const firstSeg = parts[0];
+      if (/^[A-Za-z0-9]{2,}(?:[-_][A-Za-z0-9]+)*$/.test(firstSeg) && /\d/.test(firstSeg) && firstSeg.length <= 40) {
+        return firstSeg.toUpperCase();
+      }
+    }
+
+    const leadingCodeMatch = clean.match(/^([A-Za-z]{2,12}(?:-[A-Za-z0-9]{1,12}){1,5})(?=[\s_]|$)/);
+    if (leadingCodeMatch && /\d/.test(leadingCodeMatch[1])) {
+      return leadingCodeMatch[1].toUpperCase();
+    }
+
+    const match = clean.match(/(?:RP|MP|MC|CAL|REP|NRO|CERT|DOC)[-_# ]*([a-zA-Z0-9-]+)/i);
     if (match && match[1]) {
       return match[0].toUpperCase().replace(/\s+/g, '-');
     }

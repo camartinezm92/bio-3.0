@@ -9,7 +9,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { Trash2, Plus, FileText, Search, Download, Loader2, Eye } from 'lucide-react';
+import { Trash2, Plus, FileText, Search, Download, Loader2, Eye, UploadCloud } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { generateMaintenancePDF } from '@/lib/pdfGenerator';
+import { MultiEquipmentBatchModal } from '@/components/forms/MultiEquipmentBatchModal';
 
 export default function Reports() {
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ export default function Reports() {
   const [selectedReport, setSelectedReport] = React.useState<MaintenanceReport | null>(null);
   const [reportToDelete, setReportToDelete] = React.useState<MaintenanceReport | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [showMultiBatchModal, setShowMultiBatchModal] = React.useState(false);
   const [feedback, setFeedback] = React.useState<{ title: string; message: string; type: 'success' | 'error' } | null>(null);
 
   const handleDownload = (report: MaintenanceReport) => {
@@ -161,13 +163,23 @@ export default function Reports() {
             Historial de intervenciones técnicas y preventivas para {scopeConfig.shortLabel.toLowerCase()}.
           </p>
         </div>
-        <Button 
-          onClick={() => navigate('/forms')}
-          className="rounded-xl h-12 px-6 font-bold shadow-lg shadow-primary/20"
-        >
-          <Plus className="mr-2 h-5 w-5" />
-          Nuevo Reporte
-        </Button>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => setShowMultiBatchModal(true)}
+            className="rounded-xl h-12 px-5 font-bold border-slate-300 text-slate-700 hover:bg-slate-50"
+          >
+            <UploadCloud className="mr-2 h-5 w-5 text-primary" />
+            Cargue Masivo Multi-Equipo
+          </Button>
+          <Button 
+            onClick={() => navigate('/forms')}
+            className="rounded-xl h-12 px-6 font-bold shadow-lg shadow-primary/20"
+          >
+            <Plus className="mr-2 h-5 w-5" />
+            Nuevo Reporte
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -382,6 +394,20 @@ export default function Reports() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <MultiEquipmentBatchModal
+        open={showMultiBatchModal}
+        onOpenChange={setShowMultiBatchModal}
+        equipmentList={Object.values(equipmentMap)}
+        onSuccess={({ count, equipmentCount }) => {
+          setShowMultiBatchModal(false);
+          setFeedback({
+            title: 'Cargue Masivo Completado',
+            message: `Se guardaron ${count} reporte(s) en Google Drive y en el historial de ${equipmentCount} equipo(s), actualizando automáticamente sus fechas de mantenimiento y calibración.`,
+            type: 'success'
+          });
+        }}
+      />
 
       {/* In-app feedback modal */}
       {feedback && (

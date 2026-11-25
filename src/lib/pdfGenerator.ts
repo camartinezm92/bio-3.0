@@ -1747,9 +1747,9 @@ export const generateInvoiceReportPDF = (
     styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
     columnStyles: {
       0: { cellWidth: 35, halign: 'center', valign: 'middle' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 'auto' },
-      3: { cellWidth: 'auto' }
+      1: { cellWidth: (contentWidth - 35) * 0.36, valign: 'middle' },
+      2: { cellWidth: (contentWidth - 35) * 0.34, valign: 'middle' },
+      3: { cellWidth: (contentWidth - 35) * 0.30, valign: 'middle' }
     },
     body: [
       [
@@ -2006,8 +2006,13 @@ export const generateExpensesReportPDF = (params: {
     margin: { left: margin, right: margin },
     tableWidth: contentWidth,
     theme: 'grid',
-    styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
-    columnStyles: { 0: { cellWidth: 35, halign: 'center', valign: 'middle' } },
+    styles: { fontSize: 7.4, cellPadding: 1.4, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: {
+      0: { cellWidth: 35, halign: 'center', valign: 'middle' },
+      1: { cellWidth: (contentWidth - 35) / 3, valign: 'middle' },
+      2: { cellWidth: (contentWidth - 35) / 3, valign: 'middle' },
+      3: { cellWidth: (contentWidth - 35) / 3, valign: 'middle' }
+    },
     body: [
       [
         { content: '', rowSpan: 4 },
@@ -2029,7 +2034,10 @@ export const generateExpensesReportPDF = (params: {
     didDrawCell: (data) => {
       if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
         try {
-          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 1.5, 31, 18);
+          const imgW = 31;
+          const imgH = Math.min(18, Math.max(10, data.cell.height - 3));
+          const imgY = data.cell.y + (data.cell.height - imgH) / 2;
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, imgY, imgW, imgH);
         } catch (e) { }
       }
     }
@@ -2167,29 +2175,36 @@ export const generateBudgetPDF = (budget: Budget) => {
     margin: { left: margin, right: margin },
     tableWidth: contentWidth,
     theme: 'grid',
-    styles: { fontSize: 7.2, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
-    columnStyles: { 0: { cellWidth: 35, halign: 'center', valign: 'middle' } },
+    styles: { fontSize: 7.5, cellPadding: 1.5, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0] },
+    columnStyles: {
+      0: { cellWidth: 35, halign: 'center', valign: 'middle' },
+      1: { cellWidth: (contentWidth - 35) * 0.63, valign: 'middle' },
+      2: { cellWidth: (contentWidth - 35) * 0.37, valign: 'middle' }
+    },
     body: [
       [
         { content: '', rowSpan: 4 },
-        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9.5 } }
+        { content: 'MEDICINA INTENSIVA DEL TOLIMA S.A. - UCI HONDA', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 9.5 } }
       ],
       [
-        { content: 'ESTIMACIÓN Y PRESUPUESTO DE REPUESTOS / TECNOLOGÍA', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 } }
+        { content: 'ESTIMACIÓN Y PRESUPUESTO DE REPUESTOS / TECNOLOGÍA', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8.5 } }
       ],
       [
-        { content: `Presupuesto: ${budget.name}`, colSpan: 2, styles: { fontStyle: 'bold' } },
-        { content: `Fecha: ${budget.date}`, styles: { fontStyle: 'bold' } }
+        { content: `Presupuesto: ${budget.name || 'Sin nombre'}`, styles: { fontStyle: 'bold' } },
+        { content: `Fecha: ${budget.date || 'N/A'}`, styles: { fontStyle: 'bold' } }
       ],
       [
-        { content: `Elaborado por: ${budget.createdBy || 'Ingeniería Biomédica'}`, colSpan: 2, styles: { fontStyle: 'bold' } },
+        { content: `Elaborado por: ${budget.createdBy || 'Ingeniería Biomédica'}`, styles: { fontStyle: 'bold' } },
         { content: 'Código: GTE-FOR-PRE-001 | V.01', styles: { fontStyle: 'bold' } }
       ]
     ],
     didDrawCell: (data) => {
       if (data.row.index === 0 && data.column.index === 0 && data.section === 'body') {
         try {
-          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, data.cell.y + 1.5, 31, 18);
+          const imgW = 31;
+          const imgH = Math.min(18, Math.max(10, data.cell.height - 3));
+          const imgY = data.cell.y + (data.cell.height - imgH) / 2;
+          doc.addImage('/logo.png', 'PNG', data.cell.x + 2, imgY, imgW, imgH);
         } catch (e) { }
       }
     }
